@@ -1,33 +1,34 @@
-# PFE Farm Tracker
+# PFE Farm Tracker — v7.5
 
 Mobile-first farm management app for Peel Forest Estate, South Canterbury, NZ.
 
 ## Live app
-Once deployed via GitHub Pages, the app is accessible at:
-`https://<your-github-username>.github.io/pfe-tracker/`
+
+`https://brendon-graham.github.io/PFE-tracker/`
 
 ## What it does
-- Winter crop paddock tracking (Fodder Beet, Swedes, Kale, Rape)
+
+- 9 tabs: Overview, Week, Feed Out, Breaks, Paddocks, Barn, Jobs, Toolbox, History
+- 16 crop paddocks (Fodder Beet, Swedes, Kale, Rape) with break frequency logic
 - Supplement inventory with frequency-aware feed-out (daily / MWF / Mon–Fri / every 2nd day)
-- Daily feed-out checklist with tick boxes
-- Barn TMR calculator (MA / R2 / R3 stag mobs)
-- GPS-based paddock area measurement
-- Break size calculator for daily fence shifting
-- Daily log history
-- Optional Google Sheets cloud sync
+- 4 pasture mobs with supplement tracking
+- Barn TMR calculator — 4 feeds, 3 additives, urea step-up ceiling
+- Feed-out checklist with route optimisation (Leaflet.js + farm GeoJSON)
+- Weekly Jobs — day-by-day template with ticks and archive
+- Backlog Jobs — 6 categories
+- Toolbox Minutes builder with history
+- GPS area measurement tool
+- Google Sheets sync — debounced push (2.5s), 30s live poll
+- PWA — add to home screen, auto-update banner
 
 ## Stack
-Single HTML file (`index.html`) — vanilla JS, Leaflet 1.9.4 maps, localStorage persistence. No build step, no dependencies to install.
 
-## How to update the app
+Single HTML file (`index.html`) — vanilla JS, Leaflet 1.9.4, localStorage + Google Sheets. No build step.
 
-Claude writes code fixes and pushes directly to this repo. Staff just **refresh their browser** to get the latest version. No downloading or re-sharing files needed.
+## How updates work
 
-### To deploy changes:
-1. Make changes to `index.html`
-2. `git add index.html && git commit -m "fix: description of change"`
-3. `git push origin main`
-4. GitHub Pages rebuilds in ~30 seconds
+Claude writes fixes and pushes directly to this repo. Staff just **refresh their browser** to get the latest version.
 
 ## Data storage
-All data stored in browser `localStorage` (per device). Optional Google Sheets sync available via the ⚙ Sync settings button.
+
+All farm data (jobs, mobs, feed outs, paddock settings) is stored in browser `localStorage` per device and synced to Google Sheets. Code updates via Git do **not** affect farm data.
