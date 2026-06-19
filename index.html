@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="7.6">
+<meta name="app-version" content="7.7">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v7.6";
+  const APP_VERSION = "pfe-v7.7";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -303,6 +303,15 @@ body.outdoor .supp-qty div{font-size:16px!important}
 .supp-item.swipe-skip{background:#F3F4F6}
 #outdoor-btn{background:none;border:none;color:rgba(255,255,255,.5);font-size:20px;cursor:pointer;padding:4px 8px;line-height:1;min-height:44px;min-width:44px}
 #outdoor-btn.active{color:#FFD700}
+/* Barn hero card */
+.barn-hero-card{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);margin-bottom:12px;overflow:hidden;border-top:4px solid var(--grass)}
+.barn-hero-inner{padding:16px 14px}
+.barn-hero-input{width:100%;padding:14px;font-size:30px;font-weight:800;color:#1D4ED8;border:2px solid #93C5FD;border-radius:10px;background:var(--cream);text-align:center;margin-bottom:12px;box-sizing:border-box}
+.barn-hero-input:focus{outline:none;border-color:var(--grass);box-shadow:0 0 0 4px rgba(61,107,53,.15)}
+.barn-collapse-hdr{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;background:var(--fog);cursor:pointer;border-radius:6px;margin-bottom:8px;border:1px solid var(--border)}
+.barn-collapse-hdr span:first-child{font-size:13px;font-weight:700;color:var(--bark)}
+.barn-collapse-arrow{font-size:11px;color:var(--muted);display:inline-block;transition:transform .2s}
+.barn-collapse-arrow.open{transform:rotate(90deg)}
 </style>
 </head>
 <body>
@@ -322,7 +331,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v7.6</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v7.7</div>
     </div>
   </div>
   <div class="tabs">
@@ -389,69 +398,78 @@ body.outdoor .supp-qty div{font-size:16px!important}
   </div>
   <!-- BARN CALCULATOR TAB -->
   <div id="tab-barn" class="tab-panel">
-    <div class="alert alert-info" style="margin-bottom:10px;font-size:12px">🔵 Blue cells = adjustable inputs. Changes here update the Feed Out tab automatically.</div>
-    <!-- Section 1: Mob parameters -->
-    <div class="barn-calc-section">
-      <div class="barn-calc-header">Section 1 — Mob Parameters <span>Mob inputs</span></div>
-      <div class="barn-input-row">
-        <div><div class="barn-inp-label">Head count</div><input class="barn-inp blue-input" type="number" id="bc-head" value="1220" oninput="recalcBarn()"></div>
-        <div><div class="barn-inp-label">Avg liveweight (kg)</div><input class="barn-inp blue-input" type="number" id="bc-lw" value="210" oninput="recalcBarn()"></div>
-      </div>
-      <div class="barn-input-row">
-        <div><div class="barn-inp-label">DM intake (% BW)</div><input class="barn-inp blue-input" type="number" id="bc-dmpct" value="2.5" step="0.1" oninput="recalcBarn()"></div>
-        <div><div class="barn-inp-label">Feeds per day</div><input class="barn-inp blue-input" type="number" id="bc-loads" value="2" oninput="recalcBarn()"></div>
-      </div>
-      <div style="padding:10px 14px;background:var(--cream);border-top:1px solid var(--fog)">
+    <!-- Hero: primary control -->
+    <div class="barn-hero-card">
+      <div class="barn-hero-inner">
+        <div class="barn-inp-label" style="font-size:12px;margin-bottom:8px">kg DM / stag / day</div>
+        <input type="number" id="bc-dmhd-direct" step="0.1" min="0" class="barn-hero-input" oninput="barnDmHdChanged(this.value)">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <div class="stat-box"><div class="stat-label">DM/head/day</div><div class="stat-val" id="bc-dmhd">5.25</div><div class="stat-sub">kg DM</div></div>
-          <div class="stat-box"><div class="stat-label">Total mob DM/day</div><div class="stat-val" id="bc-totdm">6,405</div><div class="stat-sub">kg DM</div></div>
+          <div class="stat-box"><div class="stat-label">Total mob DM / day</div><div class="stat-val" id="bc-totdm">—</div><div class="stat-sub">kg DM</div></div>
+          <div class="stat-box"><div class="stat-label">Grand total / load</div><div class="stat-val" id="bc-grand-per-load">—</div><div class="stat-sub">wet kg</div></div>
         </div>
       </div>
     </div>
-    <!-- Section 2: Feed blend -->
-    <div class="barn-calc-section">
-      <div class="barn-calc-header">Section 2 — Feed Blend <span>% Allocation and DM% adjustable</span></div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;min-width:480px">
-          <thead><tr style="background:var(--fog)">
-            <th style="padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:left">Feed</th>
-            <th style="padding:8px 6px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:center">% Allocation</th>
-            <th style="padding:8px 6px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:center">DM%</th>
-            <th style="padding:8px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:right">Per load<br><span style="font-size:9px">(wet kg)</span></th>
-            <th style="padding:8px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:right">Daily<br><span style="font-size:9px">(wet kg)</span></th>
-          </tr></thead>
-          <tbody id="bc-feed-rows"></tbody>
-        </table>
-      </div>
-      <button class="btn btn-secondary btn-sm" style="margin:10px 14px" onclick="addBarnFeedRow()">+ Add feed</button>
+    <!-- Mob settings: collapsible -->
+    <div class="barn-collapse-hdr" onclick="toggleBarnSection('mob-settings-body',this)">
+      <span id="mob-settings-label">Mob settings</span>
+      <span class="barn-collapse-arrow">▸</span>
     </div>
-    <!-- Section 3: Additives -->
-    <div class="barn-calc-section">
-      <div class="barn-calc-header">Section 3 — Additives <span>g/head/day adjustable</span></div>
-      <div style="overflow-x:auto">
-        <table class="barn-result-table" style="min-width:380px">
-          <thead><tr><th>Additive</th><th>g/hd/day</th><th>Per load (kg)</th><th>Daily (kg)</th></tr></thead>
-          <tbody id="bc-additive-rows"></tbody>
-        </table>
+    <div id="mob-settings-body" class="barn-calc-section" style="display:none;margin-bottom:8px">
+      <div class="barn-input-row">
+        <div><div class="barn-inp-label">Stock class</div><input class="barn-inp" id="bc-stockclass" value="Barn Stags" onchange="barnCalc.stockClass=this.value;saveAll();recalcBarn()"></div>
+        <div><div class="barn-inp-label">Head count</div><input class="barn-inp blue-input" type="number" id="bc-head" value="1220" oninput="recalcBarn()"></div>
       </div>
+      <div class="barn-input-row">
+        <div><div class="barn-inp-label">Feeds per day</div><input class="barn-inp blue-input" type="number" id="bc-loads" value="2" oninput="recalcBarn()"></div>
+        <div><div class="barn-inp-label">Avg liveweight (kg)</div><input class="barn-inp blue-input" type="number" id="bc-lw" value="210" oninput="recalcBarn()"></div>
+      </div>
+      <div class="barn-input-row" style="border-bottom:none">
+        <div><div class="barn-inp-label">DM intake (% BW)</div><input class="barn-inp blue-input" type="number" id="bc-dmpct" value="2.5" step="0.1" oninput="recalcBarn()"></div>
+        <div><div class="barn-inp-label">DM / head / day</div><div class="stat-box" style="margin-top:4px"><div class="stat-val" id="bc-dmhd">—</div><div class="stat-sub">kg DM</div></div></div>
+      </div>
+    </div>
+    <!-- Feed allocation -->
+    <div class="barn-calc-section">
+      <div class="barn-calc-header">Feed allocation <span>tap % to adjust</span></div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:var(--fog)">
+          <th style="padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:left">Feed</th>
+          <th style="padding:8px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:center">% ration</th>
+          <th style="padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:right">Wet kg / load</th>
+        </tr></thead>
+        <tbody id="bc-feed-rows-simple"></tbody>
+      </table>
+      <!-- Advanced feeds toggle -->
+      <div class="barn-collapse-hdr" onclick="toggleBarnSection('feed-advanced-body',this)" style="margin:8px 10px 0;border-radius:6px">
+        <span>Edit feeds, names & DM%</span>
+        <span class="barn-collapse-arrow">▸</span>
+      </div>
+      <div id="feed-advanced-body" style="display:none;padding-bottom:4px">
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;min-width:480px">
+            <thead><tr style="background:var(--fog)">
+              <th style="padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:left">Feed</th>
+              <th style="padding:8px 6px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:center">% Alloc</th>
+              <th style="padding:8px 6px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:center">DM%</th>
+              <th style="padding:8px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:right">Per load</th>
+              <th style="padding:8px 8px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:right">Daily</th>
+            </tr></thead>
+            <tbody id="bc-feed-rows"></tbody>
+          </table>
+        </div>
+        <button class="btn btn-secondary btn-sm" style="margin:10px 14px" onclick="addBarnFeedRow()">+ Add feed</button>
+      </div>
+    </div>
+    <!-- Additives -->
+    <div class="barn-calc-section">
+      <div class="barn-calc-header">Additives <span>g/hd/day adjustable</span></div>
+      <div id="bc-additive-rows"></div>
       <button class="btn btn-secondary btn-sm" style="margin:10px 14px" onclick="addBarnAdditiveRow()">+ Add additive</button>
-      <div class="urea-warn" style="margin:0 0 0 0">⚠ Urea ceiling: 26g/head/day. Never exceed. Pre-mix into silage every load. Weigh — never estimate.</div>
+      <div class="urea-warn" style="margin:0">⚠ Urea ceiling: 26g/head/day. Never exceed. Pre-mix into silage every load. Weigh — never estimate.</div>
     </div>
-    <!-- Section 4: Diet summary -->
+    <!-- Action buttons -->
     <div class="barn-calc-section">
-      <div class="barn-calc-header">Section 4 — Diet Summary</div>
-      <div class="diet-summary-grid" id="bc-diet-summary"></div>
-    </div>
-    <!-- Section 5: Urea step-up -->
-    <div class="barn-calc-section">
-      <div class="barn-calc-header">Section 5 — Urea Step-Up Schedule</div>
-      <div style="overflow-x:auto;padding-bottom:4px">
-        <table class="urea-schedule" style="min-width:380px">
-          <thead><tr><th>Phase</th><th>Days</th><th>g/hd/day</th><th>Daily (kg)</th><th>Per load</th><th>Status</th></tr></thead>
-          <tbody id="bc-urea-schedule"></tbody>
-        </table>
-      </div>
-      <div style="padding:10px 14px;display:flex;flex-direction:column;gap:8px">
+      <div style="padding:14px;display:flex;flex-direction:column;gap:8px">
         <button class="btn btn-primary btn-full" onclick="applyBarnToFeedOut()">✓ Apply to Feed Out tab</button>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary" style="flex:1" onclick="logBarnMix()">📋 Log this mix</button>
@@ -459,14 +477,34 @@ body.outdoor .supp-qty div{font-size:16px!important}
         </div>
       </div>
     </div>
-    <!-- Barn mix history -->
-    <div class="barn-calc-section" id="barn-mix-history-section">
-      <div class="barn-calc-header">Mix History</div>
-      <div id="barn-mix-history-list" style="padding:8px 14px"></div>
-    </div>
-    <!-- Daily guide printable -->
+    <!-- Details: diet summary, urea schedule, mix history — collapsible -->
     <div class="barn-calc-section">
-      <div class="barn-calc-header">Daily Guide for Doug</div>
+      <div class="barn-calc-header" onclick="toggleBarnSection('barn-details-body',this)" style="cursor:pointer">
+        Details <span id="barn-details-arrow" style="font-size:12px;color:var(--straw)">▸ diet summary · urea schedule · mix history</span>
+      </div>
+      <div id="barn-details-body" style="display:none">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--fog)">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Diet Summary</div>
+          <div class="diet-summary-grid" id="bc-diet-summary"></div>
+        </div>
+        <div style="padding:12px 14px;border-bottom:1px solid var(--fog)">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Urea Step-Up Schedule</div>
+          <div style="overflow-x:auto;padding-bottom:4px">
+            <table class="urea-schedule" style="min-width:380px">
+              <thead><tr><th>Phase</th><th>Days</th><th>g/hd/day</th><th>Daily (kg)</th><th>Per load</th><th>Status</th></tr></thead>
+              <tbody id="bc-urea-schedule"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="barn-mix-history-section" style="padding:12px 14px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Mix History</div>
+          <div id="barn-mix-history-list"></div>
+        </div>
+      </div>
+    </div>
+    <!-- Daily guide -->
+    <div class="barn-calc-section">
+      <div class="barn-calc-header">Daily Guide</div>
       <div id="bc-daily-guide" style="padding:14px"></div>
     </div>
     <div style="height:70px"></div>
@@ -1055,6 +1093,7 @@ let barnCalc={
   lw:210,
   dmPct:2.5,
   loads:2,
+  stockClass:"Barn Stags",
   feeds:[
     {name:"Lucerne silage",  pctDM:22.5, dmPct:35,  cp:18,   me:9.4,  ndf:45},
     {name:"Pasture silage",  pctDM:22.5, dmPct:33,  cp:16,   me:10.0, ndf:45},
@@ -1372,11 +1411,12 @@ function getBarnCalcValues(){
   return{head,lw,dmPct,loads};
 }
 function renderBarnCalc(){
-  // Populate inputs from barnCalc state
   const f=document.getElementById("bc-head");if(f)f.value=barnCalc.head;
   const g=document.getElementById("bc-lw");if(g)g.value=barnCalc.lw;
   const h=document.getElementById("bc-dmpct");if(h)h.value=barnCalc.dmPct;
   const i=document.getElementById("bc-loads");if(i)i.value=barnCalc.loads;
+  const sc=document.getElementById("bc-stockclass");if(sc)sc.value=barnCalc.stockClass||"Barn Stags";
+  const di=document.getElementById("bc-dmhd-direct");if(di)di.value=((barnCalc.lw*barnCalc.dmPct)/100).toFixed(2);
   recalcBarn();
 }
 function recalcBarn(){
@@ -1387,7 +1427,13 @@ function recalcBarn(){
   if(document.getElementById("bc-head")){barnCalc.head=head;barnCalc.lw=lw;barnCalc.dmPct=dmPct;barnCalc.loads=loads;saveAll();}
   const dmHd=(lw*dmPct/100);
   const totDM=head*dmHd;
-  document.getElementById("bc-dmhd").textContent=fmt(dmHd,2);
+  // Update hero input (only when not actively typing in it)
+  const di=document.getElementById("bc-dmhd-direct");
+  if(di&&document.activeElement!==di)di.value=fmt(dmHd,2);
+  // Update mob settings label
+  const lbl=document.getElementById("mob-settings-label");
+  if(lbl)lbl.textContent=`Mob settings — ${fmt(head,0)} head · ${loads} loads/day`;
+  if(document.getElementById("bc-dmhd"))document.getElementById("bc-dmhd").textContent=fmt(dmHd,2);
   document.getElementById("bc-totdm").textContent=fmt(totDM,0);
   // Feed rows
   let feedHTML="";
@@ -1419,7 +1465,25 @@ function recalcBarn(){
     <td style="text-align:right">${fmt(totWetApprox,0)} kg</td>
   </tr>`;
   document.getElementById("bc-feed-rows").innerHTML=feedHTML;
-  // Additives
+  // Simple feed table (3 cols, no scroll)
+  let simpleFeedHTML="";
+  barnCalc.feeds.forEach((feed,idx)=>{
+    const dmKgDay2=totDM*(feed.pctDM/100);
+    const wetKgDay2=feed.dmPct>0?dmKgDay2/(feed.dmPct/100):0;
+    const wetPerLoad2=loads>0?wetKgDay2/loads:wetKgDay2;
+    simpleFeedHTML+=`<tr style="border-bottom:1px solid var(--fog)">
+      <td style="padding:10px 10px;font-weight:600;font-size:14px">${feed.name}</td>
+      <td style="padding:10px 8px;text-align:center"><input type="number" value="${feed.pctDM}" step="0.5" min="0" max="100" onchange="barnCalc.feeds[${idx}].pctDM=parseFloat(this.value)||0;saveAll();recalcBarn()" class="barn-inp blue-input" style="width:60px;text-align:center;padding:7px 4px"></td>
+      <td style="padding:10px 10px;text-align:right;font-weight:800;font-size:18px">${fmt(wetPerLoad2,0)} kg</td>
+    </tr>`;
+  });
+  simpleFeedHTML+=`<tr style="background:var(--fog);font-weight:800">
+    <td style="padding:9px 10px;font-size:12px">TOTAL</td>
+    <td style="padding:9px 8px;text-align:center;font-size:12px">${fmt(totalPctDM,1)}%</td>
+    <td style="padding:9px 10px;text-align:right;font-size:16px">${fmt(loads>0?totWetApprox/loads:totWetApprox,0)} kg</td>
+  </tr>`;
+  const sfe=document.getElementById("bc-feed-rows-simple");if(sfe)sfe.innerHTML=simpleFeedHTML;
+  // Additives — card layout, no horizontal scroll
   let addHTML="";
   let totalWetWithAdditives=totWetApprox;
   barnCalc.additives.forEach((add,idx)=>{
@@ -1430,28 +1494,31 @@ function recalcBarn(){
     totalWetWithAdditives+=dailyKg;
     const isSafe=add.isUrea?(add.gHdDay||0)<=26:true;
     const pctCeil=add.isUrea?Math.round(((add.gHdDay||0)/26)*100):null;
-    addHTML+=`<tr class="${add.isUrea?"additive-row":""}">
-      <td>
-        <div style="font-weight:700">${add.name}${add.isUrea?" ⚠":""}</div>
-        <div style="font-size:10px;color:var(--muted)">${add.note||""}</div>
-      </td>
-      <td style="text-align:center">
-        ${add.gHdDay!=null?`<input type="number" value="${add.gHdDay}" step="1" min="0" onchange="barnCalc.additives[${idx}].gHdDay=parseFloat(this.value)||0;saveAll();recalcBarn()" class="barn-inp blue-input" style="width:56px;text-align:center;padding:5px 4px">${add.isUrea?`<div style="font-size:10px;margin-top:2px;color:${isSafe?'var(--ok)':'var(--danger)'}">${pctCeil}% of ceiling</div>`:""}`:
-        `<span style="color:var(--muted);font-size:12px">fixed</span>`}
-      </td>
-      <td style="text-align:right;font-weight:700">${fmt(perLoad,1)} kg</td>
-      <td style="text-align:right;font-weight:700">${fmt(dailyKg,1)} kg</td>
-    </tr>`;
+    addHTML+=`<div style="display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid var(--fog);${add.isUrea?'background:#FFFBEB':''}">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:14px">${add.name}${add.isUrea?' ⚠':''}</div>
+        ${add.note?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${add.note}</div>`:''}
+        ${add.gHdDay!=null?`<div style="margin-top:6px;display:flex;align-items:center;gap:6px">
+          <input type="number" value="${add.gHdDay}" step="1" min="0" onchange="barnCalc.additives[${idx}].gHdDay=parseFloat(this.value)||0;saveAll();recalcBarn()" class="barn-inp blue-input" style="width:68px;text-align:center;padding:6px 4px">
+          <span style="font-size:11px;color:var(--muted)">g/hd/day</span>
+          ${add.isUrea?`<span style="font-size:11px;color:${isSafe?'var(--ok)':'var(--danger)'};font-weight:700">${pctCeil}% of ceiling</span>`:''}
+        </div>`:'<div style="font-size:11px;color:var(--muted);margin-top:4px">Fixed daily amount</div>'}
+      </div>
+      <div style="text-align:right;margin-left:12px;flex-shrink:0">
+        <div style="font-weight:800;font-size:20px;color:var(--bark)">${fmt(perLoad,1)} kg</div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;margin-top:1px">per load</div>
+      </div>
+    </div>`;
   });
   // Grand total
   const grandPerLoad=loads>0?totalWetWithAdditives/loads:totalWetWithAdditives;
-  addHTML+=`<tr style="background:var(--soil);color:var(--cream);font-weight:800">
-    <td>GRAND TOTAL</td>
-    <td></td>
-    <td style="text-align:right">${fmt(grandPerLoad,0)} kg</td>
-    <td style="text-align:right">${fmt(totalWetWithAdditives,0)} kg</td>
-  </tr>`;
+  addHTML+=`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--soil);color:var(--cream)">
+    <div style="font-weight:800;font-size:13px">GRAND TOTAL / LOAD</div>
+    <div style="font-weight:800;font-size:22px">${fmt(grandPerLoad,0)} kg</div>
+  </div>`;
   document.getElementById("bc-additive-rows").innerHTML=addHTML;
+  // Update hero grand total
+  const gpl=document.getElementById("bc-grand-per-load");if(gpl)gpl.textContent=fmt(grandPerLoad,0);
   // Diet summary
   const cpWithUrea=blendedCP+(barnCalc.additives.find(a=>a.isUrea)?.gHdDay||0)*0.01*6.25/dmHd;
   document.getElementById("bc-diet-summary").innerHTML=`
@@ -1479,7 +1546,7 @@ function recalcBarn(){
   });
   document.getElementById("bc-urea-schedule").innerHTML=uHTML;
   // Daily guide
-  let guide=`<div style="background:var(--soil);color:var(--cream);padding:10px 12px;border-radius:var(--rs);margin-bottom:10px;font-size:11px;font-weight:700">PFE Barn Stags · ${fmt(head)} head · ${loads} loads/day</div>`;
+  let guide=`<div style="background:var(--soil);color:var(--cream);padding:10px 12px;border-radius:var(--rs);margin-bottom:10px;font-size:11px;font-weight:700">PFE ${barnCalc.stockClass||'Barn Stags'} · ${fmt(head)} head · ${loads} loads/day</div>`;
   guide+=`<table style="width:100%;border-collapse:collapse;font-size:13px">
     <tr style="background:var(--fog)"><th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--muted)">Feed</th><th style="padding:7px 8px;text-align:right;font-size:10px;text-transform:uppercase;color:var(--muted)">Per load</th><th style="padding:7px 8px;text-align:right;font-size:10px;text-transform:uppercase;color:var(--muted)">Daily</th></tr>`;
   barnCalc.feeds.forEach(f=>{
@@ -3558,6 +3625,22 @@ function renderToolboxHistory(){
 // NEW FEATURES v7.6
 // ══════════════════════════════════════════════════════════
 // 1. Outdoor high-contrast mode
+function barnDmHdChanged(val){
+  const dmHd=parseFloat(val)||0;
+  const lw=parseFloat(document.getElementById("bc-lw")?.value)||barnCalc.lw;
+  if(dmHd>0&&lw>0){
+    barnCalc.dmPct=(dmHd/lw)*100;
+    const el=document.getElementById("bc-dmpct");if(el)el.value=barnCalc.dmPct.toFixed(3);
+  }
+  recalcBarn();
+}
+function toggleBarnSection(id,hdrEl){
+  const body=document.getElementById(id);if(!body)return;
+  const isHidden=body.style.display==="none";
+  body.style.display=isHidden?"block":"none";
+  const arrow=hdrEl?hdrEl.querySelector(".barn-collapse-arrow"):null;
+  if(arrow)arrow.classList.toggle("open",isHidden);
+}
 function toggleOutdoor(){
   outdoorMode=!outdoorMode;
   localStorage.setItem('pfe5_outdoor',outdoorMode?'1':'0');
@@ -3632,6 +3715,8 @@ function renderBarnTab(){
   const g=document.getElementById('bc-lw');if(g)g.value=barnCalc.lw;
   const h=document.getElementById('bc-dmpct');if(h)h.value=barnCalc.dmPct;
   const i=document.getElementById('bc-loads');if(i)i.value=barnCalc.loads;
+  const sc=document.getElementById('bc-stockclass');if(sc)sc.value=barnCalc.stockClass||'Barn Stags';
+  const di=document.getElementById('bc-dmhd-direct');if(di)di.value=((barnCalc.lw*barnCalc.dmPct)/100).toFixed(2);
   recalcBarn();
   renderBarnMixHistory();
 }
