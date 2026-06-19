@@ -2244,35 +2244,37 @@ function renderSuppRows(containerId,rowArr){
   const c=document.getElementById(containerId);if(!c)return;
   const allSc=getAllScenarios();
   const defaultDmPct={Baleage:40,Beet:24.79,PKE:88,"Bulk Silage":33,"Lucerne Silage":35,"Silage/Urea/DCP":33,Barley:86,Peas:85,Other:33};
+  // Inline handlers run in global scope — must reference the actual global array name, not the local parameter
+  const arrName = containerId==="supp-editor-rows" ? "modalSuppRows" : "pmSuppRows";
   c.innerHTML=rowArr.map((s,i)=>{
     const isBaleage=s.type==="Baleage";
     const feeders=s.feeders||1;
     const dmPctVal=s.dmPct!=null?s.dmPct:(defaultDmPct[s.type]||33);
     return`<div style="display:grid;grid-template-columns:1fr 80px 70px 1fr${isBaleage?" 60px":""} 30px;gap:6px;align-items:start;margin-bottom:10px">
       <div>
-        <select onchange="rowArr[${i}].type=this.value;rowArr[${i}].dmPct=${JSON.stringify(defaultDmPct)}[this.value]||33;renderSuppRows('${containerId}',rowArr)" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;width:100%">
+        <select onchange="${arrName}[${i}].type=this.value;${arrName}[${i}].dmPct=${JSON.stringify(defaultDmPct)}[this.value]||33;renderSuppRows('${containerId}',${arrName})" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;width:100%">
           ${ALL_SUPP_TYPES.map(t=>`<option${t===s.type?" selected":""}>${t}</option>`).join("")}
         </select>
         ${isBaleage?`<div style="font-size:10px;color:var(--muted);margin-top:3px">kg DM/hd/day total</div>`:""}
       </div>
       <div>
         <input type="number" value="${s.dmH}" placeholder="kg DM/hd" step="0.1" min="0"
-          onchange="rowArr[${i}].dmH=parseFloat(this.value)||0;previewCalc()"
+          oninput="${arrName}[${i}].dmH=parseFloat(this.value)||0;previewCalc()"
           style="padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;width:100%">
         <div style="font-size:10px;color:var(--muted);margin-top:3px">kg DM/hd</div>
       </div>
       <div>
         <input type="number" value="${dmPctVal}" placeholder="DM%" step="0.5" min="1" max="100"
-          onchange="rowArr[${i}].dmPct=parseFloat(this.value)||33"
+          oninput="${arrName}[${i}].dmPct=parseFloat(this.value)||33"
           style="padding:8px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;width:100%;border-color:#93C5FD;color:#1D4ED8">
         <div style="font-size:10px;color:var(--muted);margin-top:3px">DM%</div>
       </div>
-      <select onchange="rowArr[${i}].freq=this.value" style="padding:8px 6px;border:1.5px solid var(--border);border-radius:6px;font-size:12px">
+      <select onchange="${arrName}[${i}].freq=this.value" style="padding:8px 6px;border:1.5px solid var(--border);border-radius:6px;font-size:12px">
         ${allSc.map(sc=>`<option value="${sc.id}"${sc.id===s.freq?" selected":""}>${sc.name}</option>`).join("")}
       </select>
       ${isBaleage?`<div>
         <input type="number" value="${feeders}" placeholder="feeders" step="1" min="1" max="10"
-          onchange="rowArr[${i}].feeders=parseInt(this.value)||1"
+          oninput="${arrName}[${i}].feeders=parseInt(this.value)||1"
           style="padding:8px 6px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;width:100%;text-align:center">
         <div style="font-size:10px;color:var(--muted);margin-top:3px;text-align:center">feeders</div>
       </div>`:""}
