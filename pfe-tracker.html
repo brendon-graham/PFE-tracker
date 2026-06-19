@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="7.4">
+<meta name="app-version" content="7.5">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -302,7 +302,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <img src="PFE_logo.png" alt="PFE" style="height:38px;width:auto;border-radius:6px;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">
       <div><h1 style="font-size:16px;font-weight:800;letter-spacing:-.3px">Peel Forest Estate</h1><div class="header-sub" id="header-date">Winter 2026</div></div>
     </div>
-    <div id="flag-pill" class="flag-pill"></div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+      <div id="flag-pill" class="flag-pill"></div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v7.5</div>
+    </div>
   </div>
   <div class="tabs">
     <button class="tab-btn active"  onclick="switchTab('overview')">Overview</button>
@@ -1332,10 +1335,11 @@ function renderBarnCalc(){
   recalcBarn();
 }
 function recalcBarn(){
-  const head=parseFloat(document.getElementById("bc-head")?.value)||1220;
-  const lw=parseFloat(document.getElementById("bc-lw")?.value)||210;
-  const dmPct=parseFloat(document.getElementById("bc-dmpct")?.value)||2.5;
-  const loads=parseFloat(document.getElementById("bc-loads")?.value)||2;
+  const head=parseFloat(document.getElementById("bc-head")?.value)||barnCalc.head;
+  const lw=parseFloat(document.getElementById("bc-lw")?.value)||barnCalc.lw;
+  const dmPct=parseFloat(document.getElementById("bc-dmpct")?.value)||barnCalc.dmPct;
+  const loads=parseFloat(document.getElementById("bc-loads")?.value)||barnCalc.loads;
+  if(document.getElementById("bc-head")){barnCalc.head=head;barnCalc.lw=lw;barnCalc.dmPct=dmPct;barnCalc.loads=loads;saveAll();}
   const dmHd=(lw*dmPct/100);
   const totDM=head*dmHd;
   document.getElementById("bc-dmhd").textContent=fmt(dmHd,2);
@@ -1355,7 +1359,7 @@ function recalcBarn(){
       <td><input value="${feed.name}" onchange="barnCalc.feeds[${idx}].name=this.value;saveAll()" style="border:none;background:transparent;font-size:13px;font-weight:600;width:100%;padding:0"></td>
       <td style="text-align:center"><input type="number" value="${feed.pctDM}" step="0.5" min="0" max="100" onchange="barnCalc.feeds[${idx}].pctDM=parseFloat(this.value)||0;saveAll();recalcBarn()" class="barn-inp blue-input" style="width:56px;text-align:center;padding:5px 4px"></td>
       <td style="text-align:center"><input type="number" value="${feed.dmPct}" step="0.1" min="1" max="100" onchange="barnCalc.feeds[${idx}].dmPct=parseFloat(this.value)||35;saveAll();recalcBarn()" class="barn-inp blue-input" style="width:56px;text-align:center;padding:5px 4px"></td>
-      <<td style="text-align:right;font-weight:700">${fmt(wetPerLoad,0)} kg</td>
+      <td style="text-align:right;font-weight:700">${fmt(wetPerLoad,0)} kg</td>
       <td style="text-align:right;font-weight:700">${fmt(wetKgDay,0)} kg</td>
     </tr>`;
   });
