@@ -84,7 +84,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .header-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px}
 .header h1{font-size:17px;font-weight:700;letter-spacing:-.3px}
 .header-sub{font-size:11px;color:var(--straw);margin-top:1px}
-.flag-pill{background:var(--danger);color:white;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap;display:none}
+.flag-pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap;border:none;color:white;flex-shrink:0}
+.flag-pill.flag-warn{background:var(--danger)}
+.flag-pill.flag-info{background:var(--sky)}
+.flag-pill.flag-ok{background:var(--grass)}
 .tabs{display:flex;gap:0;overflow-x:auto;margin-top:8px}
 .tabs::-webkit-scrollbar{display:none}
 .tab-btn{flex-shrink:0;padding:12px 9px;font-size:11px;font-weight:600;border:none;background:transparent;color:rgba(245,240,232,.5);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
@@ -3975,7 +3978,7 @@ function renderFlagStrip(){
   const today=TODAY.toISOString().slice(0,10);
   const overdue=backlogJobs.filter(j=>!j.done&&j.due&&j.due<today);
   if(overdue.length){
-    flags.push({label:`🔧 ${overdue.length} overdue job${overdue.length>1?"s":""}`,cls:"flag-warn",tab:"jobs"});
+    flags.push({label:`🔧 ${overdue.length} overdue job${overdue.length>1?"s":""}`,cls:"flag-warn",tab:"jobstodo"});
   }
 
   // 3. Silage below 20% of opening
@@ -3987,7 +3990,7 @@ function renderFlagStrip(){
   // 4. Checks not done (any required check not ticked today)
   const missedChecks=weeklyJobs.filter(j=>j.days&&j.days.includes(TODAY.getDay())&&!checks[`wj_${j.id}`]);
   if(missedChecks.length){
-    flags.push({label:`📋 ${missedChecks.length} check${missedChecks.length>1?"s":""} pending`,cls:"flag-info",tab:"jobs"});
+    flags.push({label:`📋 ${missedChecks.length} check${missedChecks.length>1?"s":""} pending`,cls:"flag-info",tab:"jobstodo"});
   }
 
   // 5. Any paddock deficit >= 10 days
@@ -4077,7 +4080,7 @@ function buildFarmContext(){
 // ── CLAUDE DRAWER ─────────────────────────────────────────────────────────────
 let _claudeHistory=[];
 function openClaudeDrawer(){
-  document.getElementById("claude-drawer").style.display="flex";
+  document.getElementById("claude-drawer").classList.add("open");
   document.getElementById("claude-backdrop").style.display="block";
   document.getElementById("claude-input").focus();
   if(!_claudeHistory.length){
@@ -4086,7 +4089,7 @@ function openClaudeDrawer(){
   }
 }
 function closeClaudeDrawer(){
-  document.getElementById("claude-drawer").style.display="none";
+  document.getElementById("claude-drawer").classList.remove("open");
   document.getElementById("claude-backdrop").style.display="none";
 }
 async function sendClaudeMessage(){
@@ -4094,7 +4097,7 @@ async function sendClaudeMessage(){
   const q=(input.value||"").trim();
   if(!q)return;
   input.value="";
-  const msgDiv=document.getElementById("claude-messages");
+  const msgDiv=document.getElementById("claude-response-area");
   const btn=document.getElementById("claude-send-btn");
 
   // User bubble
