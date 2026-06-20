@@ -4017,7 +4017,6 @@ async function callClaude(messages, model){
   const resp=await fetch(SCRIPT_URL,{
     method:"POST",
     mode:"cors",
-    headers:{"Content-Type":"application/json"},
     body:JSON.stringify({
       action:"claude",
       model:model||"claude-haiku-4-5-20251001",
