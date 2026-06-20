@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="8.0">
+<meta name="app-version" content="8.1">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v8.0";
+  const APP_VERSION = "pfe-v8.1";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -364,7 +364,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v8.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v8.1</div>
     </div>
   </div>
   <div class="tabs">
@@ -2304,10 +2304,16 @@ function saveDailyLog(){
   ALL_SUPP_TYPES.forEach(st=>{
     let tot=0;
     paddocks.filter(p=>p.active).forEach(p=>{
-      (p.supps||[]).forEach((s,idx)=>{if(s.type===st&&checks[`${p.id}_${idx}`])tot+=p.head*s.dmH;});
+      (p.supps||[]).forEach((s,idx)=>{
+        const mult=getTodayMultiplier(s.freq||"daily");
+        if(s.type===st&&checks[`${p.id}_${idx}`]&&mult>0)tot+=p.head*s.dmH*mult;
+      });
     });
     pastureMobs.forEach(m=>{
-      (m.supps||[]).forEach((s,idx)=>{if(s.type===st&&checks[`pm_${m.id}_${idx}`])tot+=m.head*s.dmH;});
+      (m.supps||[]).forEach((s,idx)=>{
+        const mult=getTodayMultiplier(s.freq||"daily");
+        if(s.type===st&&checks[`pm_${m.id}_${idx}`]&&mult>0)tot+=m.head*s.dmH*mult;
+      });
     });
     if(tot>0)entry.suppSummary[st]=tot;
   });
@@ -3037,6 +3043,8 @@ loadAll().then(()=>{
 let lastPullAt = Date.now();
 async function liveSyncPoll(){
   if(!SCRIPT_URL) return;
+  // Retry a previously failed push before attempting a pull
+  if(syncStatus === 'error' && !pushInFlight){ pushToSheet(); return; }
   if(syncStatus === 'syncing' || pushInFlight) return; // don't pull while we're mid-push
   if(pendingLocalEdit) return; // a local edit is queued/debounced — let it push first
   if(document.hidden) return; // don't poll when tab/app is in background
@@ -3624,31 +3632,31 @@ function getUpcomingWeekSummary(){
 function openNewToolboxMinutes(){
   const today = new Date();
   const dateStr = today.toLocaleDateString("en-NZ",{day:"numeric",month:"long",year:"numeric"});
-  // Get completed backlog jobs (specific jobs like weighing, scanning etc)
-  const completedSpecific = getCompletedBacklogSummary();
-  // Get upcoming specific events from Next Week slot
-  const nextWeekItems = (weeklyJobs.template["Next Week"]||[]).map(t=>typeof t==='object'?t.text:t).join("\n");
-  const extraItems = (weeklyJobs.template["Extra"]||[]).map(t=>typeof t==='object'?t.text:t).join("\n");
   activeToolboxMinutes = {
     id: "tb"+Date.now(),
     date: today.toISOString().slice(0,10),
     dateLabel: dateStr,
     savedAt: null,
     sections: {
-      attendees: "",
-      absent: "",
-      s1_specific: "",  // Was s1_review - now for specific events like weighing/scanning
-      s2_upcoming: nextWeekItems || extraItems || "", // Was s2_thisweek - upcoming specific tasks
-      s3_hs: "",
-      s4_staff: "",
-      s5_pasture: "",
-      s6_stock: "",
-      s7_rm: completedSpecific,
-      s8_actions: "",
+      attendees: "", absent: "",
+      s1_specific: "", s2_upcoming: "",
+      s3_hs: "", s4_staff: "", s5_pasture: "", s6_stock: "", s7_rm: "", s8_actions: "",
     }
   };
   renderToolboxEditor();
   renderToolboxHistory();
+}
+function generateToolboxFromJobs(){
+  if(!activeToolboxMinutes) return;
+  const completedSpecific = getCompletedBacklogSummary();
+  const nextWeekItems = (weeklyJobs.template["Next Week"]||[]).map(t=>typeof t==='object'?t.text:t).join("\n");
+  const extraItems = (weeklyJobs.template["Extra"]||[]).map(t=>typeof t==='object'?t.text:t).join("\n");
+  const s = activeToolboxMinutes.sections;
+  const el2 = document.getElementById('tb-s2');
+  const el7 = document.getElementById('tb-s7');
+  if(!s.s2_upcoming){ s.s2_upcoming = nextWeekItems || extraItems || ""; if(el2) el2.value = s.s2_upcoming; }
+  if(!s.s7_rm){ s.s7_rm = completedSpecific; if(el7) el7.value = s.s7_rm; }
+  toast("✓ Generated from weekly jobs & backlog");
 }
 function renderToolboxEditor(){
   const el = document.getElementById("toolbox-minutes-editor");
@@ -3669,7 +3677,8 @@ function renderToolboxEditor(){
   const secStyle = `font-weight:700;font-size:12px;color:var(--bark);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px`;
   el.innerHTML = `
     <div class="card" style="padding:14px">
-      <div style="font-weight:700;font-size:15px;margin-bottom:12px">📝 Toolbox Meeting — ${m.dateLabel}</div>
+      <div style="font-weight:700;font-size:15px;margin-bottom:8px">📝 Toolbox Meeting — ${m.dateLabel}</div>
+      <button onclick="generateToolboxFromJobs()" class="btn btn-sm btn-secondary" style="width:100%;margin-bottom:12px">⚡ Generate from weekly jobs & backlog</button>
       <div style="${secStyle}">Attendees</div>
       <textarea id="tb-attendees" style="${fieldStyle}" placeholder="Names of those present…">${s.attendees||''}</textarea>
       <div style="${secStyle}">Absent</div>
@@ -3740,6 +3749,23 @@ function discardDraftMinutes(){
   activeToolboxMinutes = null;
   renderToolboxEditor();
 }
+function editToolboxMinutes(id){
+  const m = toolboxMinutesList.find(x => x.id === id);
+  if(!m) return;
+  activeToolboxMinutes = JSON.parse(JSON.stringify(m));
+  switchTab('toolbox');
+  renderToolboxEditor();
+  renderToolboxHistory();
+}
+function deleteToolboxMinutes(id){
+  const m = toolboxMinutesList.find(x => x.id === id);
+  if(!m) return;
+  if(!confirm(`Delete toolbox minutes for ${m.dateLabel}?`)) return;
+  toolboxMinutesList = toolboxMinutesList.filter(x => x.id !== id);
+  saveAll();
+  renderToolboxHistory();
+  toast("Minutes deleted");
+}
 function pushActionsToBacklog(){
   const ta = document.getElementById("tb-s8");
   if(!ta || !ta.value.trim()) return;
@@ -3782,9 +3808,12 @@ function renderToolboxHistory(){
   el.innerHTML = [...toolboxMinutesList].reverse().map(m => `
     <div style="margin-bottom:10px">
       <details>
-        <summary style="cursor:pointer;padding:10px 12px;background:var(--fog);border-radius:var(--rs);font-weight:600;font-size:13px;list-style:none;display:flex;justify-content:space-between">
+        <summary style="cursor:pointer;padding:10px 12px;background:var(--fog);border-radius:var(--rs);font-weight:600;font-size:13px;list-style:none;display:flex;justify-content:space-between;align-items:center">
           <span>📝 ${m.dateLabel}</span>
-          <span style="color:var(--muted);font-size:11px;font-weight:400">tap to view</span>
+          <span style="display:flex;gap:6px;align-items:center">
+            <button onclick="event.preventDefault();event.stopPropagation();editToolboxMinutes('${m.id}')" style="font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:white;cursor:pointer;color:var(--bark)">Edit</button>
+            <button onclick="event.preventDefault();event.stopPropagation();deleteToolboxMinutes('${m.id}')" style="font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #C0392B;background:white;cursor:pointer;color:#C0392B">Delete</button>
+          </span>
         </summary>
         <div style="margin-top:6px">${renderMinutesReadOnly(m)}</div>
       </details>
