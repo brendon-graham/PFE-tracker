@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="8.1">
+<meta name="app-version" content="8.2">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v8.1";
+  const APP_VERSION = "pfe-v8.2";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -364,7 +364,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v8.1</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v8.2</div>
     </div>
   </div>
   <div class="tabs">
@@ -376,6 +376,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <button class="tab-btn"         onclick="switchTab('barn')">🏚 Barn</button>
     <button class="tab-btn"         onclick="switchTab('jobstodo')">🔧 Jobs</button>
     <button class="tab-btn"         onclick="switchTab('toolbox')">📝 Toolbox</button>
+    <button class="tab-btn"         onclick="switchTab('diary')">📓 Diary</button>
     <button class="tab-btn"         onclick="switchTab('history')">History</button>
   </div>
   <!-- Sync status bar -->
@@ -630,7 +631,9 @@ body.outdoor .supp-qty div{font-size:16px!important}
   <!-- TOOLBOX MINUTES TAB -->
   <!-- ══════════════════════════════════════════════════════════ -->
   <div id="tab-toolbox" class="tab-panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div class="sec" style="margin-bottom:8px">This Week's Agenda</div>
+    <div id="toolbox-agenda"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;margin-bottom:10px">
       <div class="sec" style="margin:0">Toolbox Minutes</div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm btn-secondary" onclick="openNewToolboxMinutes()">+ New</button>
@@ -640,6 +643,32 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <div id="toolbox-minutes-editor"></div>
     <div class="sec" style="margin-top:16px">Past Minutes</div>
     <div id="toolbox-minutes-history"></div>
+    <div style="height:80px"></div>
+  </div>
+
+  <!-- DIARY TAB -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div id="tab-diary" class="tab-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="sec" style="margin:0">Diary</div>
+      <span id="diary-user-label" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <div style="background:var(--card);border-radius:10px;padding:14px;margin-bottom:16px">
+      <select id="diary-cat-select" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;margin-bottom:10px">
+        <option value="stock">Stock</option>
+        <option value="feed">Feed</option>
+        <option value="maintenance">Maintenance</option>
+        <option value="safety">⚠ Safety</option>
+        <option value="planning">Planning</option>
+        <option value="weather">Weather</option>
+        <option value="other">Other</option>
+      </select>
+      <textarea id="diary-notes-input" placeholder="Write your note… (voice input works here)" rows="4"
+        style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:14px;resize:vertical;box-sizing:border-box;font-family:inherit;display:block"></textarea>
+      <button onclick="saveDiaryEntry()" style="margin-top:8px;width:100%;padding:10px;background:var(--grass);color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Save Entry</button>
+    </div>
+    <div class="sec">This week's entries</div>
+    <div id="diary-list"></div>
     <div style="height:80px"></div>
   </div>
 </div>
@@ -747,15 +776,8 @@ body.outdoor .supp-qty div{font-size:16px!important}
       <div class="modal-title" id="sil-modal-title">Update inventory</div>
       <button class="modal-close" onclick="closeModal('silage-modal')">✕</button>
     </div>
-    <div class="modal-body">
-      <input type="hidden" id="sil-id">
-      <div class="field"><label>Current inventory (kg DM)</label><input type="number" id="sil-current" step="100"></div>
-      <div class="field"><label>Daily draw rate (kg DM/day)</label><input type="number" id="sil-draw" step="100"><div class="field-hint">Used to calculate days remaining</div></div>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="btn btn-secondary" style="flex:1" onclick="closeModal('silage-modal')">Cancel</button>
-        <button class="btn btn-primary" style="flex:2" onclick="saveSilage()">Update</button>
-      </div>
-      <div style="height:8px"></div>
+    <div class="modal-body" id="sil-modal-body">
+      <!-- Populated dynamically by openSilageModal -->
     </div>
   </div>
 </div>
@@ -1133,10 +1155,10 @@ let barnCalc={
   loads:2,
   stockClass:"Barn Stags",
   feeds:[
-    {name:"Lucerne silage",  pctDM:22.5, dmPct:35,  cp:18,   me:9.4,  ndf:45},
-    {name:"Pasture silage",  pctDM:22.5, dmPct:33,  cp:16,   me:10.0, ndf:45},
-    {name:"Lifting beet",    pctDM:27.0, dmPct:24.79,cp:4.6,  me:13.2, ndf:14.3},
-    {name:"Maize silage",    pctDM:27.0, dmPct:32,  cp:9.0,  me:10.1, ndf:47},
+    {name:"Lucerne silage",  pctDM:22.5, dmPct:35,   cp:18,  me:9.4,  ndf:45,  silageId:"lucmz"},
+    {name:"Pasture silage",  pctDM:22.5, dmPct:35,   cp:16,  me:10.0, ndf:45,  silageId:"bulk"},
+    {name:"Lifting beet",    pctDM:27.0, dmPct:24.79,cp:4.6, me:13.2, ndf:14.3,silageId:"lbeet"},
+    {name:"Maize silage",    pctDM:27.0, dmPct:32,   cp:9.0, me:10.1, ndf:47,  silageId:"lucmz"},
   ],
   additives:[
     {name:"Urea",          gHdDay:10, note:"Pre-mix into silage — weigh every load", isUrea:true},
@@ -1165,11 +1187,12 @@ let paddocks=[
   {id:"jack", crop:"Rape",      name:"Jack (Rape)",     ha:1.50,used:0.00,yield:4500, head:0,   dmReq:2.0,cropDM:1.0, supps:[],        width:64, active:false,note:"No stock currently",freq:"mwf",stockClass:"B11 R2s"},
 ];
 let silages=[
-  {id:"bulk",  name:"Bulk Silage",       color:"#2563EB",opening:490000,current:490000,draw:3600,note:"Pasture silage pit · every 2nd day to paddocks",altDay:true},
-  {id:"lucmz", name:"Lucerne/Maize Pit", color:"#16A34A",opening:382000,current:382000,draw:4000,note:"35m × 17m × 2.2m · 33.5% DM",altDay:false},
-  {id:"lbeet", name:"Lifting Beet",      color:"#9333EA",opening:111555,current:111555,draw:988, note:"450t wet × 24.79% DM · barn 27% of diet",altDay:false},
-  {id:"pke",   name:"PKE",               color:"#D68910",opening:29000, current:29000, draw:200, note:"34t purchased · ~5t fed · 86% DM",altDay:false},
-  {id:"peas",  name:"Peas",              color:"#16A34A",opening:12000, current:12000, draw:0,   note:"12t available",altDay:false},
+  {id:"bulk",   name:"Bulk Silage",       color:"#2563EB",opening:490000,current:490000,draw:3600,note:"Pasture silage pit · every 2nd day to paddocks",altDay:true, dmPct:35},
+  {id:"lucmz",  name:"Lucerne/Maize Pit", color:"#16A34A",opening:382000,current:382000,draw:4000,note:"35m × 17m × 2.2m · 33.5% DM",altDay:false, dmPct:35},
+  {id:"lbeet",  name:"Lifting Beet",      color:"#9333EA",opening:111555,current:111555,draw:988, note:"450t wet × 24.79% DM · barn 27% of diet",altDay:false, dmPct:24.79},
+  {id:"pke",    name:"PKE",               color:"#D68910",opening:29000, current:29000, draw:200, note:"34t purchased · ~5t fed · 86% DM",altDay:false, dmPct:88},
+  {id:"peas",   name:"Peas",              color:"#16A34A",opening:12000, current:12000, draw:0,   note:"12t available",altDay:false, dmPct:85},
+  {id:"baleage",name:"Baleage",           color:"#92400E",opening:64600, current:64600, draw:0,   note:"200 bales · 850 kg wet · 38% DM",altDay:false, dmPct:38, numBales:200, wetPerBale:850, dmPerBale:323},
 ];
 let pastureMobs=[
   {id:"pm1",name:"MA Comms on Flats",  head:800,supps:[{type:"Bulk Silage",dmH:2.5,freq:"2d"}],note:"Flat paddocks"},
@@ -1190,6 +1213,8 @@ let weeklyJobs = { template: {}, ticks: {}, weekStart: "" };
 let backlogJobs = [];
 let weeklyCompletedArchive = [];
 let toolboxMinutesList = [];
+let diary = [];          // daily notes from Brendon, Henry, Mark
+let pendingAgenda = [];  // agenda items built by nightly Claude agent
 let activeToolboxMinutes = null;
 // weeklyEditMode already declared above
 let addJobTargetCat = "Jobs To Do";
@@ -1234,7 +1259,7 @@ function renderSyncBar(){
   const hasUrl = !!SCRIPT_URL;
   const icons = {idle:"☁",syncing:"⟳",ok:"✓",error:"⚠",offline:"✕"};
   const cols  = {idle:"#6B6560",syncing:"#2980B9",ok:"#27AE60",error:"#C0392B",offline:"#D68910"};
-  const labels= {idle:"Not set up",syncing:"Syncing…",ok:"Synced",error:"Sync error",offline:"Offline"};
+  const labels= {idle:"Connecting…",syncing:"Syncing…",ok:"Synced",error:"Sync error",offline:"Offline"};
   bar.style.background = hasUrl ? cols[syncStatus] : "#6B6560";
   bar.innerHTML = `
     <span style="font-size:13px">${icons[syncStatus]}</span>
@@ -1260,9 +1285,11 @@ function saveAll(){
     localStorage.setItem("pfe5_weeklyjobs",  JSON.stringify(weeklyJobs));
     localStorage.setItem("pfe5_backlog",     JSON.stringify(backlogJobs));
     localStorage.setItem("pfe5_wjarchive",   JSON.stringify(weeklyCompletedArchive));
-    localStorage.setItem("pfe5_toolbox",     JSON.stringify(toolboxMinutesList));
+    localStorage.setItem("pfe5_toolbox",      JSON.stringify(toolboxMinutesList));
     localStorage.setItem("pfe5_barnmixlog",  JSON.stringify(barnMixLog));
     localStorage.setItem("pfe5_routeorder",  JSON.stringify(feedOutRouteOrder));
+    localStorage.setItem("pfe5_diary",       JSON.stringify(diary));
+    localStorage.setItem("pfe5_agenda",      JSON.stringify(pendingAgenda));
   }catch(e){}
   if(SCRIPT_URL){
     pendingLocalEdit = true;
@@ -1288,6 +1315,8 @@ async function pushToSheet(){
         backlogJobs,
         weeklyCompletedArchive,
         toolboxMinutesList,
+        diary,
+        pendingAgenda,
         lastModified: thisTs,
       }
     };
@@ -1321,7 +1350,7 @@ async function pullFromSheet(){
       if(d.lastModified && d.lastModified <= Math.max(lastAppliedRemoteTs, lastLocalModifiedTs)){
         // Sheet data is no newer than local edits or what we've already applied — nothing to do.
         syncStatus="ok"; renderSyncBar();
-        renderWeeklyJobs(); renderBacklogJobs(); renderToolboxEditor(); renderToolboxHistory();
+        renderWeeklyJobs(); renderBacklogJobs(); renderToolboxEditor(); renderToolboxHistory(); renderToolboxAgenda(); renderDiaryTab();
         return;
       }
       if(d.paddocks    && d.paddocks.length)    paddocks    = d.paddocks;
@@ -1338,6 +1367,8 @@ async function pullFromSheet(){
       if(d.backlogJobs && d.backlogJobs.length)  backlogJobs              = d.backlogJobs;
       if(d.weeklyCompletedArchive)               weeklyCompletedArchive   = d.weeklyCompletedArchive;
       if(d.toolboxMinutesList && d.toolboxMinutesList.length) toolboxMinutesList = d.toolboxMinutesList;
+      if(d.diary            && d.diary.length)            diary            = d.diary;
+      if(d.pendingAgenda    && d.pendingAgenda.length)    pendingAgenda    = d.pendingAgenda;
       try{
         localStorage.setItem("pfe5_paddocks",    JSON.stringify(paddocks));
         localStorage.setItem("pfe5_silages",     JSON.stringify(silages));
@@ -1350,6 +1381,8 @@ async function pullFromSheet(){
         localStorage.setItem("pfe5_backlog",     JSON.stringify(backlogJobs));
         localStorage.setItem("pfe5_wjarchive",   JSON.stringify(weeklyCompletedArchive));
         localStorage.setItem("pfe5_toolbox",     JSON.stringify(toolboxMinutesList));
+        localStorage.setItem("pfe5_diary",       JSON.stringify(diary));
+        localStorage.setItem("pfe5_agenda",      JSON.stringify(pendingAgenda));
       }catch(e){}
       syncStatus="ok";
       if(d.lastModified) lastAppliedRemoteTs = d.lastModified;
@@ -1363,10 +1396,14 @@ async function pullFromSheet(){
     loadFromLocal();
   }
   renderSyncBar();
+  renderAll();
+  renderFlagStrip();
   renderWeeklyJobs();
   renderBacklogJobs();
   renderToolboxEditor();
   renderToolboxHistory();
+  renderToolboxAgenda();
+  renderDiaryTab();
 }
 function loadFromLocal(){
   try{
@@ -1385,7 +1422,18 @@ function loadFromLocal(){
     const tb=localStorage.getItem("pfe5_toolbox");    if(tb) toolboxMinutesList=JSON.parse(tb);
     const bml=localStorage.getItem("pfe5_barnmixlog"); if(bml) barnMixLog=JSON.parse(bml);
     const ro=localStorage.getItem("pfe5_routeorder");  if(ro) feedOutRouteOrder=JSON.parse(ro);
+    const dr=localStorage.getItem("pfe5_diary");       if(dr) diary=JSON.parse(dr);
+    const ag=localStorage.getItem("pfe5_agenda");      if(ag) pendingAgenda=JSON.parse(ag);
   }catch(e){}
+  // Migration: add dmPct to existing silage entries, add Baleage if missing, add silageId to barn feeds
+  const SIL_DMPCT_DEFAULTS={bulk:35,lucmz:35,lbeet:24.79,pke:88,peas:85,baleage:38};
+  silages.forEach(s=>{if(s.dmPct==null&&SIL_DMPCT_DEFAULTS[s.id]!=null)s.dmPct=SIL_DMPCT_DEFAULTS[s.id];});
+  if(!silages.find(s=>s.id==="baleage")){
+    silages.push({id:"baleage",name:"Baleage",color:"#92400E",opening:64600,current:64600,draw:0,
+      note:"200 bales · 850 kg wet · 38% DM",altDay:false,dmPct:38,numBales:200,wetPerBale:850,dmPerBale:323});
+  }
+  const BARN_SIL_MAP={"Lucerne silage":"lucmz","Pasture silage":"bulk","Lifting beet":"lbeet","Maize silage":"lucmz"};
+  barnCalc.feeds.forEach(f=>{if(!f.silageId&&BARN_SIL_MAP[f.name])f.silageId=BARN_SIL_MAP[f.name];});
 }
 async function loadAll(){
   loadFromLocal();
@@ -1394,6 +1442,7 @@ async function loadAll(){
   // Render from localStorage immediately — no jarring flash of default data
   renderAll();
   renderWeeklyJobs(); renderBacklogJobs(); renderToolboxEditor(); renderToolboxHistory();
+  renderToolboxAgenda(); renderDiaryTab();
   renderFlagStrip();
   if(SCRIPT_URL){
     await pullFromSheet(); // then update with cloud data
@@ -1420,6 +1469,8 @@ function renderAll(){
   if(t==="barn")      {renderBarnCalc();renderBarnMixHistory();}
   if(t==="breaks")    renderBreaks();
   if(t==="history")   renderHistory();
+  if(t==="diary")     renderDiaryTab();
+  if(t==="toolbox")   {renderToolboxAgenda();}
 }
 // Sync setup modal
 function openSyncModal(){
@@ -1845,7 +1896,7 @@ function closeModal(id){document.getElementById(id).classList.remove("open");}
 // TABS
 // ══════════════════════════════════════════════════════════
 let currentTab="overview";
-const TAB_NAMES=["overview","weeklyjobs","feedout","breaks","paddocks","barn","jobstodo","toolbox","history"];
+const TAB_NAMES=["overview","weeklyjobs","feedout","breaks","paddocks","barn","jobstodo","toolbox","diary","history"];
 function switchTab(t){
   document.querySelectorAll(".tab-panel").forEach(el=>{el.classList.remove("active");el.style.display="none";});
   document.querySelectorAll(".tab-btn").forEach((btn,i)=>{btn.classList.remove("active");if(TAB_NAMES[i]===t)btn.classList.add("active");});
@@ -1854,7 +1905,7 @@ function switchTab(t){
     if(t==="measure"){panel.style.display="flex";panel.classList.add("active");setTimeout(()=>{if(map)map.invalidateSize();},150);}
     else{panel.style.display="block";panel.classList.add("active");}
   }
-  document.getElementById("fab-add").style.display=(t==="measure"||t==="history"||t==="barn")?"none":"flex";
+  document.getElementById("fab-add").style.display=(t==="measure"||t==="history"||t==="barn"||t==="diary")?"none":"flex";
   currentTab=t;
   if(t==="overview")  renderOverview();
   if(t==="paddocks")  renderPaddocks();
@@ -1862,6 +1913,8 @@ function switchTab(t){
   if(t==="barn")      {renderBarnCalc();renderBarnMixHistory();}
   if(t==="breaks")    renderBreaks();
   if(t==="history")   renderHistory();
+  if(t==="diary")     renderDiaryTab();
+  if(t==="toolbox")   renderToolboxAgenda();
 }
 // ══════════════════════════════════════════════════════════
 // OVERVIEW
@@ -1918,6 +1971,9 @@ function renderOverview(){
     const pct=s.opening>0?Math.min(100,(s.current/s.opening)*100):100;
     const drawn=s.opening-s.current;
     const fc=daysR<14?"fill-danger":daysR<30?"fill-warn":"fill-sky";
+    const isBaleage=s.id==="baleage";
+    const balesRem=isBaleage&&s.dmPerBale>0?Math.round(s.current/s.dmPerBale):null;
+    const balesDrawn=isBaleage&&s.dmPerBale>0?Math.round(drawn/s.dmPerBale):null;
     sh+=`<div class="sil-card" style="border-left:4px solid ${s.color}">
       <div class="sil-header">
         <div><div class="sil-name">${s.name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${s.note||""}</div></div>
@@ -1925,13 +1981,20 @@ function renderOverview(){
       </div>
       <div class="sil-body">
         <div class="prog-wrap">
-          <div class="prog-label"><span>Remaining: <b>${fmt(s.current)} kg DM</b></span><span>${fmt(pct,0)}%</span></div>
+          <div class="prog-label">
+            <span>Remaining: <b>${isBaleage&&balesRem!=null?balesRem+" bales ("+fmt(s.current)+" kg DM)":fmt(s.current)+" kg DM"}</b></span>
+            <span>${fmt(pct,0)}%</span>
+          </div>
           <div class="prog-track"><div class="prog-fill ${fc}" style="width:${pct}%"></div></div>
         </div>
         <div class="stat-grid">
-          <div class="stat-box"><div class="stat-label">Opening</div><div class="stat-val">${fmt(s.opening/1000,0)}t</div><div class="stat-sub">kg DM</div></div>
-          <div class="stat-box"><div class="stat-label">Drawn</div><div class="stat-val">${fmt(drawn/1000,1)}t</div><div class="stat-sub">since opening</div></div>
-          <div class="stat-box"><div class="stat-label">Daily draw</div><div class="stat-val">${fmt(s.draw)}</div><div class="stat-sub">kg DM/day</div></div>
+          ${isBaleage
+            ?`<div class="stat-box"><div class="stat-label">Opening</div><div class="stat-val">${s.numBales||0}</div><div class="stat-sub">bales</div></div>
+               <div class="stat-box"><div class="stat-label">Used</div><div class="stat-val">${balesDrawn!=null?balesDrawn:"—"}</div><div class="stat-sub">bales</div></div>
+               <div class="stat-box"><div class="stat-label">Per bale</div><div class="stat-val">${fmt(s.dmPerBale||0,0)}</div><div class="stat-sub">kg DM</div></div>`
+            :`<div class="stat-box"><div class="stat-label">Opening</div><div class="stat-val">${fmt(s.opening/1000,0)}t</div><div class="stat-sub">kg DM</div></div>
+               <div class="stat-box"><div class="stat-label">Drawn</div><div class="stat-val">${fmt(drawn/1000,1)}t</div><div class="stat-sub">since opening</div></div>
+               <div class="stat-box"><div class="stat-label">Daily draw</div><div class="stat-val">${fmt(s.draw)}</div><div class="stat-sub">kg DM/day</div></div>`}
           <div class="stat-box" style="${daysR<14?"background:#FEE2E2":daysR<30?"background:#FEF3C7":""}">
             <div class="stat-label">Days remaining</div>
             <div class="stat-val" style="${daysR<14?"color:var(--danger)":daysR<30?"color:var(--warn)":""}">${daysR>300?"—":daysR}</div>
@@ -2115,14 +2178,17 @@ function renderFeedOut(){
       const todayFeed=isBreakDay(s.freq);
       const mult=getTodayMultiplier(s.freq); // 0 = not today, 1+ = days of cover
       const dmDay=p.head*s.dmH;
-      // Use stored DM% if available, else fall back to type defaults
-      const defaultDmPct={Baleage:0.40,Beet:0.2479,PKE:0.88,"Bulk Silage":0.33,"Lucerne Silage":0.35,"Silage/Urea/DCP":0.33,Barley:0.86,Peas:0.85,Other:0.33};
-      const dmPct=s.dmPct!=null?(s.dmPct/100):(defaultDmPct[s.type]||0.33);
-      const wetDay=dmPct>0?dmDay/dmPct:dmDay/0.33;
+      // DM% comes from the silage inventory (one source of truth); fall back to type defaults
+      const defaultDmPct={Baleage:0.38,Beet:0.2479,PKE:0.88,"Bulk Silage":0.35,"Lucerne Silage":0.35,"Silage/Urea/DCP":0.35,Barley:0.86,Peas:0.85,Other:0.35};
+      const sil=getSilageForSuppType(s.type);
+      const dmPctFrac=sil?.dmPct!=null?sil.dmPct/100:(defaultDmPct[s.type]||0.35);
+      const wetDay=dmPctFrac>0?dmDay/dmPctFrac:dmDay;
       const wetToday=todayFeed?wetDay*mult:0;
       const nextMult=getNextShiftMultiplier(s.freq); // what mult will be on next feed day
       const feeders=s.feeders||1;
-      allItems.push({id,name:p.name,mob:p.stockClass||"",type:s.type,dmDay,wetDay,wetToday,mult,nextMult,freq:s.freq,todayFeed,feeders,source:"crop",splits:p.splits||null});
+      const balesDay=s.type==="Baleage"&&sil?.wetPerBale>0?wetDay/sil.wetPerBale:null;
+      const balesToday=balesDay!=null&&mult>0?balesDay*mult:null;
+      allItems.push({id,name:p.name,mob:p.stockClass||"",type:s.type,dmDay,wetDay,wetToday,mult,nextMult,freq:s.freq,todayFeed,feeders,balesDay,balesToday,source:"crop",splits:p.splits||null});
     });
   });
   pastureMobs.forEach(m=>{
@@ -2131,13 +2197,16 @@ function renderFeedOut(){
       const todayFeed=isBreakDay(s.freq);
       const mult=getTodayMultiplier(s.freq); // 0 = not today
       const dmDay=m.head*s.dmH;
-      const defaultDmPct={Baleage:0.40,Beet:0.2479,PKE:0.88,"Bulk Silage":0.33,"Lucerne Silage":0.35,"Silage/Urea/DCP":0.33,Barley:0.86,Peas:0.85,Other:0.33};
-      const dmPct=s.dmPct!=null?(s.dmPct/100):(defaultDmPct[s.type]||0.33);
-      const wetDay=dmPct>0?dmDay/dmPct:dmDay/0.33;
+      const defaultDmPct={Baleage:0.38,Beet:0.2479,PKE:0.88,"Bulk Silage":0.35,"Lucerne Silage":0.35,"Silage/Urea/DCP":0.35,Barley:0.86,Peas:0.85,Other:0.35};
+      const sil=getSilageForSuppType(s.type);
+      const dmPctFrac=sil?.dmPct!=null?sil.dmPct/100:(defaultDmPct[s.type]||0.35);
+      const wetDay=dmPctFrac>0?dmDay/dmPctFrac:dmDay;
       const wetToday=todayFeed?wetDay*mult:0;
       const nextMult=getNextShiftMultiplier(s.freq);
       const feeders=s.feeders||1;
-      allItems.push({id,name:m.name,mob:m.note||"Pasture",type:s.type,dmDay,wetDay,wetToday,mult,nextMult,freq:s.freq,todayFeed,feeders,source:"pasture"});
+      const balesDay=s.type==="Baleage"&&sil?.wetPerBale>0?wetDay/sil.wetPerBale:null;
+      const balesToday=balesDay!=null&&mult>0?balesDay*mult:null;
+      allItems.push({id,name:m.name,mob:m.note||"Pasture",type:s.type,dmDay,wetDay,wetToday,mult,nextMult,freq:s.freq,todayFeed,feeders,balesDay,balesToday,source:"pasture"});
     });
   });
   // Progress
@@ -2166,24 +2235,29 @@ function renderFeedOut(){
     else{routeOrder=nearestNeighbourRoute(g.map(i=>i.name));feedOutRouteOrder[st]={names:currentNames,order:routeOrder};saveAll();}
     g.sort((a,b)=>routeOrder.indexOf(a.name)-routeOrder.indexOf(b.name));
     const stTotWet=g.filter(i=>i.todayFeed).reduce((a,i)=>a+i.wetToday,0);
+    const isBaleageGroup=st==="Baleage";
+    const stTotBales=isBaleageGroup?g.filter(i=>i.todayFeed&&i.balesToday!=null).reduce((a,i)=>a+i.balesToday,0):0;
+    const groupTotLabel=isBaleageGroup&&stTotBales>0?`${fmt(stTotBales,1)} bales today`:stTotWet>0?`${fmt(stTotWet,0)} kg wet today`:"not today";
     cHTML+=`<div class="supp-group">
-      <div class="supp-group-head"><span>${st}</span><span style="font-size:11px">${stTotWet>0?fmt(stTotWet,0)+" kg wet today":"not today"}</span></div>`;
+      <div class="supp-group-head"><span>${st}</span><span style="font-size:11px">${groupTotLabel}</span></div>`;
     g.forEach(item=>{
       const checked=!!checks[item.id];
       const skip=!item.todayFeed;
       const sc=getScenario(item.freq);
       const isBaleage=item.type==="Baleage";
       const wetShowAmt=skip?(item.wetDay*(item.nextMult||1)):item.wetToday;
-      const skipLabel=skip?`Next feed (${getNextShiftDesc(item.freq)}): ${fmt(item.wetDay*(item.nextMult||1),0)} kg wet`:"";
-      // For baleage: show per-feeder amount and feeder count
+      const balesShowAmt=skip?(item.balesDay!=null?item.balesDay*(item.nextMult||1):null):item.balesToday;
+      // For baleage: show bales per feeder; for others: kg wet
       let qtyHTML="";
       if(isBaleage&&!skip){
-        const perFeeder=item.feeders>0?item.wetToday/item.feeders:item.wetToday;
-        qtyHTML=`<div style="font-weight:800;font-size:14px">${fmt(item.wetToday,0)} kg wet</div>
-          <div style="font-size:11px;color:var(--ok);font-weight:700">↳ ${fmt(perFeeder,0)} kg × ${item.feeders} feeder${item.feeders>1?"s":""}</div>
+        const balesTotal=item.balesToday!=null?item.balesToday:null;
+        const perFeeder=balesTotal!=null&&item.feeders>0?balesTotal/item.feeders:null;
+        qtyHTML=`<div style="font-weight:800;font-size:14px">${balesTotal!=null?fmt(balesTotal,1)+" bales":fmt(item.wetToday,0)+" kg wet"}</div>
+          ${perFeeder!=null?`<div style="font-size:11px;color:var(--ok);font-weight:700">↳ ${fmt(perFeeder,1)} bales × ${item.feeders} feeder${item.feeders>1?"s":""}</div>`:""}
           <div class="supp-qty-sub">${item.mult>1?item.mult+"× cover":""}</div>`;
       }else if(skip){
-        qtyHTML=`<div style="color:var(--muted)">${fmt(wetShowAmt,0)} kg wet</div>
+        const nextBales=isBaleage&&balesShowAmt!=null;
+        qtyHTML=`<div style="color:var(--muted)">${nextBales?fmt(balesShowAmt,1)+" bales":fmt(wetShowAmt,0)+" kg wet"}</div>
           <div class="supp-qty-sub">next feed${item.nextMult>1?" ("+item.nextMult+"× cover)":""}</div>`;
       }else{
         qtyHTML=`<div style="font-weight:800;font-size:14px">${fmt(wetShowAmt,0)} kg wet</div>
@@ -2230,7 +2304,7 @@ function renderFeedOut(){
 }
 // Map supplement type to silage inventory id
 function getSilageForSuppType(type){
-  const map={"Bulk Silage":"bulk","Silage/Urea/DCP":"bulk","Lucerne Silage":"lucmz","PKE":"pke","Peas":"peas","Beet":"lbeet"};
+  const map={"Bulk Silage":"bulk","Silage/Urea/DCP":"bulk","Lucerne Silage":"lucmz","PKE":"pke","Peas":"peas","Beet":"lbeet","Baleage":"baleage"};
   const sid=map[type];
   return sid?silages.find(s=>s.id===sid):null;
 }
@@ -2290,7 +2364,35 @@ function toggleCheck(id){
   // Refresh overview silage bars if visible
   if(currentTab==="overview")renderOverview();
 }
-function toggleBarnCheck(){checks["barn"]=!checks["barn"];saveAll();renderFeedOut();}
+function toggleBarnCheck(){
+  const wasChecked=!!checks["barn"];
+  checks["barn"]=!wasChecked;
+  if(!wasChecked){
+    // Ticking on — deduct each barn feed's DM from its silage inventory
+    const dmHd=barnCalc.lw*barnCalc.dmPct/100;
+    const totDM=barnCalc.head*dmHd;
+    barnCalc.feeds.forEach((feed,idx)=>{
+      const sil=feed.silageId?silages.find(s=>s.id===feed.silageId):null;
+      if(!sil)return;
+      const feedDM=totDM*(feed.pctDM/100);
+      const deduct=Math.min(feedDM,sil.current);
+      sil.current=Math.max(0,parseFloat((sil.current-deduct).toFixed(1)));
+      checks[`barn_dm_${idx}`]={silId:sil.id,dm:deduct};
+    });
+  }else{
+    // Un-ticking — reverse deductions
+    barnCalc.feeds.forEach((feed,idx)=>{
+      const stored=checks[`barn_dm_${idx}`];
+      if(stored){
+        const sil=silages.find(s=>s.id===stored.silId);
+        if(sil)sil.current=Math.min(sil.opening,parseFloat((sil.current+stored.dm).toFixed(1)));
+        delete checks[`barn_dm_${idx}`];
+      }
+    });
+  }
+  saveAll();renderFeedOut();
+  if(currentTab==="overview")renderOverview();
+}
 function resetChecks(){if(!confirm("Reset all ticks?"))return;checks={};saveAll();renderFeedOut();toast("Feed-out list reset");}
 function saveDailyLog(){
   const entry={
@@ -2539,14 +2641,14 @@ window.pmSuppRows=pmSuppRows;
 function buildSuppRows(supps,containerId,rowArr){
   rowArr.length=0;
   // Default DM% by type if not stored
-  const defaultDmPct={Baleage:40,Beet:24.79,PKE:88,"Bulk Silage":33,"Lucerne Silage":35,"Silage/Urea/DCP":33,Barley:86,Peas:85,Other:33};
+  const defaultDmPct={Baleage:38,Beet:24.79,PKE:88,"Bulk Silage":35,"Lucerne Silage":35,"Silage/Urea/DCP":35,Barley:86,Peas:85,Other:35};
   supps.forEach(s=>rowArr.push({type:s.type,dmH:s.dmH,freq:s.freq||"daily",feeders:s.feeders||1,dmPct:s.dmPct!=null?s.dmPct:(defaultDmPct[s.type]||33)}));
   renderSuppRows(containerId,rowArr);
 }
 function renderSuppRows(containerId,rowArr){
   const c=document.getElementById(containerId);if(!c)return;
   const allSc=getAllScenarios();
-  const defaultDmPct={Baleage:40,Beet:24.79,PKE:88,"Bulk Silage":33,"Lucerne Silage":35,"Silage/Urea/DCP":33,Barley:86,Peas:85,Other:33};
+  const defaultDmPct={Baleage:38,Beet:24.79,PKE:88,"Bulk Silage":35,"Lucerne Silage":35,"Silage/Urea/DCP":35,Barley:86,Peas:85,Other:35};
   // Inline handlers run in global scope — must reference the actual global array name, not the local parameter
   const arrName = containerId==="supp-editor-rows" ? "modalSuppRows" : "pmSuppRows";
   c.innerHTML=rowArr.map((s,i)=>{
@@ -2756,16 +2858,68 @@ function openSilageModal(id){
   editingSilId=id;
   const s=silages.find(x=>x.id===id);if(!s)return;
   document.getElementById("sil-modal-title").textContent="Update — "+s.name;
-  document.getElementById("sil-id").value=id;
-  document.getElementById("sil-current").value=s.current;
-  document.getElementById("sil-draw").value=s.draw;
+  const isBaleage=id==="baleage";
+  let bodyHTML=`<input type="hidden" id="sil-id" value="${id}">`;
+  if(isBaleage){
+    const numBales=s.numBales||0;
+    const wetPerBale=s.wetPerBale||850;
+    const dmPct=s.dmPct||38;
+    const dmPerBale=parseFloat((wetPerBale*dmPct/100).toFixed(1));
+    bodyHTML+=`
+      <div class="field"><label>Bales on hand</label><input type="number" id="sil-bales" value="${numBales}" step="1" min="0" oninput="updateBaleageCalc()"></div>
+      <div class="field"><label>Wet weight per bale (kg)</label><input type="number" id="sil-wetperbale" value="${wetPerBale}" step="10" min="1" oninput="updateBaleageCalc()"></div>
+      <div class="field"><label>DM% of baleage</label><input type="number" id="sil-dmpct-baleage" value="${dmPct}" step="0.5" min="1" max="100" oninput="updateBaleageCalc()"></div>
+      <div style="background:var(--fog);border-radius:8px;padding:10px 12px;font-size:12px;margin-top:4px">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">kg DM per bale</span><span id="sil-dmperbale-display" style="font-weight:700">${fmt(dmPerBale,1)} kg</span></div>
+        <div style="display:flex;justify-content:space-between;margin-top:4px"><span style="color:var(--muted)">Total DM on hand</span><span id="sil-totaldm-display" style="font-weight:700">${fmt(numBales*dmPerBale)} kg DM</span></div>
+      </div>
+      <div class="field" style="margin-top:8px"><label>Daily draw (kg DM/day)</label><input type="number" id="sil-draw" value="${s.draw}" step="50" min="0"><div class="field-hint">Used to calculate days remaining</div></div>`;
+  }else{
+    bodyHTML+=`
+      <div class="field"><label>Current inventory (kg DM)</label><input type="number" id="sil-current" value="${s.current}" step="100" min="0"></div>
+      <div class="field"><label>Opening / total stock (kg DM)</label><input type="number" id="sil-opening" value="${s.opening}" step="100" min="0"><div class="field-hint">Used for the % remaining bar</div></div>
+      <div class="field"><label>DM content (%)</label><input type="number" id="sil-dmpct" value="${s.dmPct||35}" step="0.5" min="1" max="100"><div class="field-hint">Used to calculate wet kg in Feed Out</div></div>
+      <div class="field"><label>Daily draw (kg DM/day)</label><input type="number" id="sil-draw" value="${s.draw}" step="100" min="0"><div class="field-hint">Used to calculate days remaining</div></div>`;
+  }
+  bodyHTML+=`
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn btn-secondary" style="flex:1" onclick="closeModal('silage-modal')">Cancel</button>
+      <button class="btn btn-primary" style="flex:2" onclick="saveSilage()">Update</button>
+    </div><div style="height:8px"></div>`;
+  document.getElementById("sil-modal-body").innerHTML=bodyHTML;
   document.getElementById("silage-modal").classList.add("open");
 }
+function updateBaleageCalc(){
+  const bales=parseFloat(document.getElementById("sil-bales")?.value)||0;
+  const wet=parseFloat(document.getElementById("sil-wetperbale")?.value)||0;
+  const dm=parseFloat(document.getElementById("sil-dmpct-baleage")?.value)||0;
+  const dmPerBale=parseFloat((wet*dm/100).toFixed(1));
+  const totalDM=bales*dmPerBale;
+  const dpEl=document.getElementById("sil-dmperbale-display");
+  const tdEl=document.getElementById("sil-totaldm-display");
+  if(dpEl)dpEl.textContent=fmt(dmPerBale,1)+" kg";
+  if(tdEl)tdEl.textContent=fmt(totalDM)+" kg DM";
+}
 function saveSilage(){
-  const s=silages.find(x=>x.id===document.getElementById("sil-id").value);if(!s)return;
-  s.current=parseFloat(document.getElementById("sil-current").value)||0;
-  s.draw=parseFloat(document.getElementById("sil-draw").value)||0;
-  saveAll();closeModal("silage-modal");renderOverview();toast("✓ Inventory updated");
+  const id=document.getElementById("sil-id")?.value;
+  const s=silages.find(x=>x.id===id);if(!s)return;
+  if(id==="baleage"){
+    const bales=parseFloat(document.getElementById("sil-bales")?.value)||0;
+    const wetPerBale=parseFloat(document.getElementById("sil-wetperbale")?.value)||850;
+    const dmPct=parseFloat(document.getElementById("sil-dmpct-baleage")?.value)||38;
+    const dmPerBale=parseFloat((wetPerBale*dmPct/100).toFixed(1));
+    const totalDM=parseFloat((bales*dmPerBale).toFixed(1));
+    s.numBales=bales;s.wetPerBale=wetPerBale;s.dmPct=dmPct;s.dmPerBale=dmPerBale;
+    s.current=totalDM;s.opening=totalDM;
+    s.draw=parseFloat(document.getElementById("sil-draw")?.value)||0;
+    s.note=`${bales} bales · ${wetPerBale} kg wet · ${dmPct}% DM`;
+  }else{
+    s.current=parseFloat(document.getElementById("sil-current")?.value)||0;
+    s.opening=parseFloat(document.getElementById("sil-opening")?.value)||s.opening;
+    s.dmPct=parseFloat(document.getElementById("sil-dmpct")?.value)||s.dmPct;
+    s.draw=parseFloat(document.getElementById("sil-draw")?.value)||0;
+  }
+  saveAll();closeModal("silage-modal");renderOverview();renderFeedOut();toast("✓ Inventory updated");
 }
 function openAddStock(){document.getElementById("add-stock-modal").classList.add("open");}
 function saveStock(){
@@ -3142,7 +3296,10 @@ const DEFAULT_WEEKLY_TEMPLATE = {
   Extra:     ["Replace gate at top of Grahams","Firewood Scotsburn School"],
 };
 // weeklyJobs = { template: {day:[tasks]}, ticks: {day_idx: bool}, weekStart: "YYYY-MM-DD" }
-weeklyJobs = { template: JSON.parse(JSON.stringify(DEFAULT_WEEKLY_TEMPLATE)), ticks: {}, weekStart: "" };
+// Only apply hardcoded defaults if no saved data exists — prevents overwriting live data after loadFromLocal() has already run
+if (!localStorage.getItem('pfe5_weeklyjobs')) {
+  weeklyJobs = { template: JSON.parse(JSON.stringify(DEFAULT_WEEKLY_TEMPLATE)), ticks: {}, weekStart: "" };
+}
 weeklyEditMode = false;
 function getWeekStart(){
   const d = new Date();
@@ -3448,7 +3605,10 @@ const DEFAULT_BACKLOG = [
   // Potholes
   {id:"pt1",cat:"Potholes",text:"Deer shed drive",done:false,doneAt:null,doneBy:null},
 ];
-backlogJobs = JSON.parse(JSON.stringify(DEFAULT_BACKLOG));
+// Only apply hardcoded defaults if no saved data exists — prevents overwriting live data after loadFromLocal() has already run
+if (!localStorage.getItem('pfe5_backlog')) {
+  backlogJobs = JSON.parse(JSON.stringify(DEFAULT_BACKLOG));
+}
 // weeklyCompletedArchive already declared above
 // toolboxMinutesList already declared above
 // activeToolboxMinutes already declared above
@@ -4172,6 +4332,146 @@ function copySummaryToClipboard(){
     const btn=el.closest(".modal-box").querySelector("button.btn-primary");
     if(btn){const t=btn.textContent;btn.textContent="Copied!";setTimeout(()=>btn.textContent=t,1500);}
   });
+}
+// ══════════════════════════════════════════════════════════
+// DIARY
+// ══════════════════════════════════════════════════════════
+const DIARY_CAT_LABELS={stock:"Stock",feed:"Feed",maintenance:"Maintenance",safety:"Safety",planning:"Planning",weather:"Weather",other:"Other"};
+const DIARY_CAT_COLORS={stock:"#16a34a",feed:"#ca8a04",maintenance:"#7c3aed",safety:"#dc2626",planning:"#2563eb",weather:"#0891b2",other:"#6b7280"};
+const MONTHS_SHORT=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function saveDiaryEntry(){
+  const cat=document.getElementById("diary-cat-select").value;
+  const notes=(document.getElementById("diary-notes-input").value||"").trim();
+  if(!notes){toast("Add a note first");return;}
+  const todayStr=TODAY.toISOString().slice(0,10);
+  const dateDisplay=`${TODAY.getDate()} ${MONTHS_SHORT[TODAY.getMonth()]} ${TODAY.getFullYear()}`;
+  const id=typeof crypto!=="undefined"&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
+  diary.push({id,person:syncUserName,date:todayStr,dateDisplay,category:cat,notes,agentReviewed:false});
+  document.getElementById("diary-notes-input").value="";
+  saveAll();
+  renderDiaryTab();
+  toast("✓ Entry saved");
+}
+
+function deleteDiaryEntry(id){
+  if(!confirm("Delete this entry?"))return;
+  diary=diary.filter(e=>e.id!==id);
+  saveAll();
+  renderDiaryTab();
+}
+
+function renderDiaryTab(){
+  const lbl=document.getElementById("diary-user-label");
+  if(lbl) lbl.textContent=syncUserName;
+  const list=document.getElementById("diary-list");
+  if(!list) return;
+  const cutoff=new Date(TODAY);
+  cutoff.setDate(cutoff.getDate()-6);
+  const cutoffStr=cutoff.toISOString().slice(0,10);
+  const recent=diary.filter(e=>e.date>=cutoffStr).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+  if(!recent.length){
+    list.innerHTML=`<div style="color:var(--muted);font-size:13px;padding:12px 0">No entries this week yet.</div>`;
+    return;
+  }
+  list.innerHTML=recent.map(e=>{
+    const col=DIARY_CAT_COLORS[e.category]||"#6b7280";
+    const lbl=DIARY_CAT_LABELS[e.category]||e.category;
+    const notesEsc=e.notes.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>");
+    return `<div style="background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:10px;border-left:3px solid ${col}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:11px;font-weight:700;color:${col};text-transform:uppercase">${lbl}</span>
+          <span style="font-size:11px;color:var(--muted)">${e.person} · ${e.dateDisplay}</span>
+        </div>
+        <button onclick="deleteDiaryEntry('${e.id}')" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1;padding:0 2px">×</button>
+      </div>
+      <div style="font-size:13px;line-height:1.5">${notesEsc}</div>
+      ${e.agentReviewed?'<div style="font-size:10px;color:var(--muted);margin-top:4px">✓ reviewed by agent</div>':""}
+    </div>`;
+  }).join("");
+}
+
+// ══════════════════════════════════════════════════════════
+// TOOLBOX AGENDA
+// ══════════════════════════════════════════════════════════
+const AGENDA_CAT_LABELS={stock:"Stock",feed:"Feed",maintenance:"Maintenance",safety:"Safety",planning:"Planning",jobs:"Jobs",followup:"Follow-up",other:"Other"};
+
+function renderToolboxAgenda(){
+  const el=document.getElementById("toolbox-agenda");
+  if(!el) return;
+  const items=pendingAgenda.filter(a=>a.status!=="removed");
+  const included=items.filter(a=>a.status==="included");
+  let html=`<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <button onclick="openAddAgendaItem()" class="btn btn-sm btn-secondary">+ Add item</button>
+    ${included.length?`<button onclick="finaliseAgenda()" style="background:var(--grass);color:white;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Finalise →  minutes</button>`:""}
+  </div>`;
+  if(!items.length){
+    html+=`<div style="color:var(--muted);font-size:13px;padding:4px 0 4px">No agenda items yet — diary entries are reviewed nightly by the AI agent.</div>`;
+  } else {
+    html+=items.map(a=>{
+      const isIncluded=a.status==="included";
+      const isFinalised=a.status==="finalised";
+      const catLbl=AGENDA_CAT_LABELS[a.category]||a.category;
+      const itemEsc=(a.item||"").replace(/&/g,"&amp;").replace(/</g,"&lt;");
+      return `<div style="display:flex;align-items:flex-start;gap:10px;background:var(--card);border-radius:8px;padding:10px 12px;margin-bottom:8px;opacity:${isIncluded||isFinalised?1:0.45}">
+        <input type="checkbox" ${isIncluded||isFinalised?"checked":""} onchange="toggleAgendaInclude('${a.id}')" style="margin-top:2px;width:16px;height:16px;cursor:pointer;flex-shrink:0" ${isFinalised?"disabled":""}>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:3px">${catLbl}${a.source?` · ${a.source}`:""}${isFinalised?' · <span style="color:var(--grass)">finalised</span>':""}</div>
+          <div style="font-size:13px;line-height:1.4">${itemEsc}</div>
+          ${a.priority==="high"?'<div style="font-size:10px;color:var(--danger);margin-top:2px">⚑ Priority</div>':""}
+        </div>
+        ${isFinalised?"":
+          `<button onclick="removeAgendaItem('${a.id}')" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;flex-shrink:0;line-height:1">×</button>`}
+      </div>`;
+    }).join("");
+  }
+  el.innerHTML=html;
+}
+
+function openAddAgendaItem(){
+  const item=prompt("Agenda item:");
+  if(!item||!item.trim())return;
+  const id=typeof crypto!=="undefined"&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
+  pendingAgenda.push({id,addedDate:TODAY.toISOString().slice(0,10),category:"other",item:item.trim(),source:"Manual",priority:"normal",status:"included"});
+  saveAll();
+  renderToolboxAgenda();
+  toast("✓ Added to agenda");
+}
+
+function toggleAgendaInclude(id){
+  const a=pendingAgenda.find(x=>x.id===id);
+  if(!a||a.status==="finalised")return;
+  a.status=a.status==="excluded"?"included":"excluded";
+  saveAll();
+  renderToolboxAgenda();
+}
+
+function removeAgendaItem(id){
+  const a=pendingAgenda.find(x=>x.id===id);
+  if(a)a.status="removed";
+  saveAll();
+  renderToolboxAgenda();
+}
+
+function finaliseAgenda(){
+  const included=pendingAgenda.filter(a=>a.status==="included");
+  if(!included.length){toast("No items checked for inclusion");return;}
+  const cats=[...new Set(included.map(a=>a.category))];
+  let text="TOOLBOX AGENDA\n";
+  cats.forEach(cat=>{
+    const its=included.filter(a=>a.category===cat);
+    text+=`\n${(AGENDA_CAT_LABELS[cat]||cat).toUpperCase()}\n`;
+    its.forEach(a=>{text+=`• ${a.item}\n`;});
+  });
+  const ta=document.querySelector("#toolbox-minutes-editor textarea");
+  if(!ta){toast("Start a new minutes session first (+ New)");return;}
+  if(ta.value&&!confirm("Replace current minutes draft with agenda?"))return;
+  ta.value=text;
+  pendingAgenda.forEach(a=>{if(a.status==="included")a.status="finalised";});
+  saveAll();
+  renderToolboxAgenda();
+  toast("✓ Agenda finalised — minutes pre-filled");
 }
 </script>
 
