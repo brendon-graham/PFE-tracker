@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="8.2">
+<meta name="app-version" content="8.3">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v8.2";
+  const APP_VERSION = "pfe-v8.3";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -364,7 +364,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v8.2</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v8.3</div>
     </div>
   </div>
   <div class="tabs">
@@ -636,10 +636,12 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;margin-bottom:10px">
       <div class="sec" style="margin:0">Toolbox Minutes</div>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" id="mic-btn" style="background:var(--danger);color:white" onclick="toggleMeetingMic()">🎙 Record</button>
         <button class="btn btn-sm btn-secondary" onclick="openNewToolboxMinutes()">+ New</button>
         <button class="btn btn-sm" style="background:var(--grass);color:white" onclick="saveToolboxMinutes()">Save</button>
       </div>
     </div>
+    <div id="mic-panel"></div>
     <div id="toolbox-minutes-editor"></div>
     <div class="sec" style="margin-top:16px">Past Minutes</div>
     <div id="toolbox-minutes-history"></div>
@@ -1241,7 +1243,7 @@ let syncStatus = "idle"; // idle | syncing | ok | error | offline
 let syncPending = false;
 let syncTimer = null;
 // Guards against the live poll clobbering a local edit that hasn't reached the sheet yet:
-let lastAppliedRemoteTs = 0;   // newest lastModified we've actually applied (from a push we made, or a pull)
+let lastAppliedRemoteTs = Number(localStorage.getItem("pfe5_lastApplied") || 0);   // newest lastModified we've actually applied (from a push we made, or a pull)
 let pendingLocalEdit = false;  // true from the moment saveAll() runs until the debounced push completes
 let pushInFlight = false;
 let lastLocalModifiedTs = Number(localStorage.getItem("pfe5_lastLocalModified") || 0);
@@ -1331,6 +1333,7 @@ async function pushToSheet(){
     // whatever was on the sheet before this push lands.
     lastAppliedRemoteTs = thisTs;
     localStorage.setItem("pfe5_lastSync", new Date().toISOString());
+    try{localStorage.setItem("pfe5_lastApplied", String(lastAppliedRemoteTs));}catch(e){}
   } catch(e){
     syncStatus = navigator.onLine ? "error" : "offline";
     console.warn("Sync push failed:", e.message);
@@ -1347,8 +1350,8 @@ async function pullFromSheet(){
     const json = await res.json();
     if(json.ok && json.data){
       const d = json.data;
-      if(d.lastModified && d.lastModified <= Math.max(lastAppliedRemoteTs, lastLocalModifiedTs)){
-        // Sheet data is no newer than local edits or what we've already applied — nothing to do.
+      if(d.lastModified && lastAppliedRemoteTs && d.lastModified <= lastAppliedRemoteTs){
+        // Already applied this exact version — nothing to do.
         syncStatus="ok"; renderSyncBar();
         renderWeeklyJobs(); renderBacklogJobs(); renderToolboxEditor(); renderToolboxHistory(); renderToolboxAgenda(); renderDiaryTab();
         return;
@@ -1385,7 +1388,7 @@ async function pullFromSheet(){
         localStorage.setItem("pfe5_agenda",      JSON.stringify(pendingAgenda));
       }catch(e){}
       syncStatus="ok";
-      if(d.lastModified) lastAppliedRemoteTs = d.lastModified;
+      if(d.lastModified){ lastAppliedRemoteTs = d.lastModified; try{localStorage.setItem("pfe5_lastApplied", String(lastAppliedRemoteTs));}catch(e){} }
     } else {
       syncStatus="error";
       loadFromLocal();
@@ -4200,6 +4203,84 @@ function renderFlagStrip(){
   el.innerHTML=flags.map(f=>`<span class="flag-pill ${f.cls}" onclick="switchTab('${f.tab}')" style="cursor:pointer">${f.label}</span>`).join("");
 }
 
+// ── MEETING RECORDING ────────────────────────────────────────────────────────
+let micRecognition = null;
+let micTranscript = '';
+let micInterim = '';
+let micRecording = false;
+
+function toggleMeetingMic(){
+  if(micRecording) stopMeetingRecording();
+  else startMeetingRecording();
+}
+function startMeetingRecording(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ toast('Speech recognition not supported on this browser'); return; }
+  micTranscript = ''; micInterim = ''; micRecording = true;
+  const btn = document.getElementById('mic-btn');
+  if(btn){ btn.textContent='⏹ Stop'; btn.style.background='var(--bark)'; }
+  renderMicPanel();
+  micRecognition = new SR();
+  micRecognition.continuous = true;
+  micRecognition.interimResults = true;
+  micRecognition.lang = 'en-NZ';
+  micRecognition.onresult = e => {
+    let fin='', inter='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      if(e.results[i].isFinal) fin += e.results[i][0].transcript + ' ';
+      else inter += e.results[i][0].transcript;
+    }
+    if(fin) micTranscript += fin;
+    micInterim = inter;
+    const p = document.getElementById('mic-transcript-preview');
+    if(p) p.textContent = (micTranscript + micInterim).slice(-400) || 'Listening…';
+  };
+  micRecognition.onend = () => { if(micRecording) micRecognition.start(); };
+  micRecognition.onerror = e => { if(e.error !== 'no-speech'){ toast('Mic error: '+e.error); stopMeetingRecording(); } };
+  micRecognition.start();
+}
+function stopMeetingRecording(){
+  micRecording = false;
+  if(micRecognition){ micRecognition.onend=null; micRecognition.stop(); micRecognition=null; }
+  const btn = document.getElementById('mic-btn');
+  if(btn){ btn.textContent='🎙 Record'; btn.style.background='var(--danger)'; }
+  renderMicPanel();
+  if(micTranscript.trim()) generateMinutesFromTranscript();
+  else toast('No speech detected');
+}
+function renderMicPanel(){
+  const el = document.getElementById('mic-panel');
+  if(!el) return;
+  if(!micRecording){ el.innerHTML=''; return; }
+  el.innerHTML = `
+    <div class="card" style="background:#fff0f0;border:2px solid var(--danger);padding:12px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="width:10px;height:10px;border-radius:50%;background:var(--danger);display:inline-block;animation:pulse 1s infinite"></span>
+        <span style="font-weight:700;font-size:13px;color:var(--danger)">Recording meeting…</span>
+        <button onclick="stopMeetingRecording()" style="margin-left:auto;background:var(--danger);color:white;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer">⏹ Stop</button>
+      </div>
+      <div id="mic-transcript-preview" style="font-size:11px;color:var(--muted);min-height:32px;font-style:italic;line-height:1.5">Listening…</div>
+    </div>`;
+}
+async function generateMinutesFromTranscript(){
+  const el = document.getElementById('mic-panel');
+  if(el) el.innerHTML=`<div class="card" style="padding:12px;margin-bottom:10px;text-align:center;font-size:13px;color:var(--muted)">⟳ Generating minutes from recording…</div>`;
+  try{
+    const raw = await callClaude([{role:'user',content:`You are writing toolbox meeting minutes for Peel Forest Estate, a deer and beef farm in Canterbury NZ. Extract information from this transcript into structured minutes. Return ONLY a valid JSON object with these exact keys (empty string if not mentioned):\n{\n  "attendees": "names of people present",\n  "absent": "anyone absent",\n  "s1_specific": "specific upcoming events — weighing, scanning, drenching, velvet harvest, pregnancy testing, AI etc",\n  "s2_upcoming": "key upcoming jobs or projects needing planning",\n  "s3_hs": "health and safety matters",\n  "s4_staff": "staff, leave, availability",\n  "s5_pasture": "pasture management, feed wedge, plate meter",\n  "s6_stock": "stock movements, treatments, mob priorities",\n  "s7_rm": "repairs and maintenance items",\n  "s8_actions": "decisions and action items, include owner name if mentioned"\n}\n\nMeeting transcript:\n${micTranscript}`}],'claude-haiku-4-5-20251001');
+    const match = raw.match(/\{[\s\S]*\}/);
+    if(!match) throw new Error('Could not parse response');
+    const sections = JSON.parse(match[0]);
+    openNewToolboxMinutes();
+    Object.assign(activeToolboxMinutes.sections, sections);
+    renderToolboxEditor();
+    if(el) el.innerHTML='';
+    micTranscript='';
+    toast('✓ Minutes generated — review and save');
+    document.getElementById('toolbox-minutes-editor')?.scrollIntoView({behavior:'smooth'});
+  }catch(e){
+    if(el) el.innerHTML=`<div class="card" style="background:#fff0f0;padding:12px;margin-bottom:10px;font-size:13px;color:var(--danger)">Could not generate minutes: ${e.message}<br><button onclick="openNewToolboxMinutes();document.getElementById('mic-panel').innerHTML=''" style="margin-top:8px;background:var(--bark);color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer">Open blank minutes instead</button></div>`;
+  }
+}
 // ── CLAUDE PROXY ─────────────────────────────────────────────────────────────
 async function callClaude(messages, model){
   if(!SCRIPT_URL)throw new Error("No Apps Script URL configured");
