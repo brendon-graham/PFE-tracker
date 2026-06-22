@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="8.6">
+<meta name="app-version" content="9.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v8.4";
+  const APP_VERSION = "pfe-v9.0";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -364,7 +364,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v8.6</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v9.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -453,15 +453,15 @@ body.outdoor .supp-qty div{font-size:16px!important}
     </div>
     <div id="mob-settings-body" class="barn-calc-section" style="display:none;margin-bottom:8px">
       <div class="barn-input-row">
-        <div><div class="barn-inp-label">Stock class</div><input class="barn-inp" id="bc-stockclass" value="Barn Stags" onchange="barnCalc.stockClass=this.value;saveAll();recalcBarn()"></div>
-        <div><div class="barn-inp-label">Head count</div><input class="barn-inp blue-input" type="number" id="bc-head" value="1220" oninput="recalcBarn();saveAll()"></div>
+        <div><div class="barn-inp-label">Stock class</div><input class="barn-inp" id="bc-stockclass" value="Barn Stags" onchange="barnCalc.stockClass=this.value;barnChanged();recalcBarn()"></div>
+        <div><div class="barn-inp-label">Head count</div><input class="barn-inp blue-input" type="number" id="bc-head" value="1220" oninput="recalcBarn();barnChanged()"></div>
       </div>
       <div class="barn-input-row">
-        <div><div class="barn-inp-label">Feeds per day</div><input class="barn-inp blue-input" type="number" id="bc-loads" value="2" oninput="recalcBarn();saveAll()"></div>
-        <div><div class="barn-inp-label">Avg liveweight (kg)</div><input class="barn-inp blue-input" type="number" id="bc-lw" value="210" oninput="recalcBarn();saveAll()"></div>
+        <div><div class="barn-inp-label">Feeds per day</div><input class="barn-inp blue-input" type="number" id="bc-loads" value="2" oninput="recalcBarn();barnChanged()"></div>
+        <div><div class="barn-inp-label">Avg liveweight (kg)</div><input class="barn-inp blue-input" type="number" id="bc-lw" value="210" oninput="recalcBarn();barnChanged()"></div>
       </div>
       <div class="barn-input-row" style="border-bottom:none">
-        <div><div class="barn-inp-label">DM intake (% BW)</div><input class="barn-inp blue-input" type="number" id="bc-dmpct" value="2.5" step="0.1" oninput="recalcBarn();saveAll()"></div>
+        <div><div class="barn-inp-label">DM intake (% BW)</div><input class="barn-inp blue-input" type="number" id="bc-dmpct" value="2.5" step="0.1" oninput="recalcBarn();barnChanged()"></div>
         <div><div class="barn-inp-label">DM / head / day</div><div class="stat-box" style="margin-top:4px"><div class="stat-val" id="bc-dmhd">—</div><div class="stat-sub">kg DM</div></div></div>
       </div>
     </div>
@@ -1250,6 +1250,7 @@ let pendingLocalEdit = false;  // true from the moment saveAll() runs until the 
 let pushInFlight = false;
 let pushBlocked = false;       // true during startup pull — prevents stale data racing ahead of the pull
 let lastLocalModifiedTs = Number(localStorage.getItem("pfe5_lastLocalModified") || 0);
+let pendingChanges = [];       // v9.0 delta queue — each entry: {section,key,value,user,ts}; persisted to pfe5_pending
 const SYNC_DEBOUNCE_MS = 2500; // wait 2.5s after last change before pushing
 function setSyncUrl(url, name){
   SCRIPT_URL = url.trim();
@@ -1303,41 +1304,67 @@ function saveAll(){
     syncStatus="idle"; renderSyncBar();
   }
 }
+// Queue a single field change for v9.0 delta push.
+// Call alongside saveAll() at every user-interaction save point.
+function queueChange(section, key, value){
+  pendingChanges.push({section, key, value, user: syncUserName, ts: Date.now()});
+  try{ localStorage.setItem("pfe5_pending", JSON.stringify(pendingChanges)); }catch(e){}
+}
+// Wrapper for barn field saves — queues barncalc and triggers the normal debounced push.
+function barnChanged(){
+  queueChange("barncalc", "all", barnCalc);
+  saveAll();
+}
 async function pushToSheet(){
   if(!SCRIPT_URL) return;
   if(pushBlocked) return; // startup pull still in flight — loadAll() will reschedule after pull completes
   syncStatus="syncing"; pushInFlight=true; renderSyncBar();
-  const thisTs = lastLocalModifiedTs || Date.now();
   try{
-    const payload = {
-      action:"push",
-      user: syncUserName,
-      data:{
-        paddocks, silages, pastureMobs, barnCalc,
-        checks:{checks, date:checksDate},
-        scenarios: customScenarios,
-        dailyLogs,
-        weeklyJobs,
-        backlogJobs,
-        weeklyCompletedArchive,
-        toolboxMinutesList,
-        diary,
-        pendingAgenda,
-        lastModified: thisTs,
-      }
-    };
-    await fetch(SCRIPT_URL, {
-      method:"POST",
-      mode:"no-cors",
-      body: JSON.stringify(payload),
-      headers:{"Content-Type":"text/plain"},
-    });
-    syncStatus="ok";
-    // We just became the newest version of the data — don't let a poll overwrite it with
-    // whatever was on the sheet before this push lands.
-    lastAppliedRemoteTs = thisTs;
+    if(pendingChanges.length > 0){
+      // ── Delta push — only the fields that changed ─────────────────────────────
+      const changesToSend = [...pendingChanges]; // snapshot so new edits during push are kept
+      await fetch(SCRIPT_URL, {
+        method:"POST",
+        mode:"no-cors",
+        body: JSON.stringify({action:"pushDelta", user:syncUserName, changes:changesToSend}),
+        headers:{"Content-Type":"text/plain"},
+      });
+      syncStatus="ok";
+      // Remove the sent entries; any that arrived during the push stay in queue
+      pendingChanges = pendingChanges.filter(c => !changesToSend.includes(c));
+      try{ localStorage.setItem("pfe5_pending", JSON.stringify(pendingChanges)); }catch(e){}
+      const maxTs = Math.max(...changesToSend.map(c => c.ts));
+      lastAppliedRemoteTs = maxTs;
+    } else {
+      // ── Full-state fallback — uninstrumented handlers (scenarios, break ticks, route order) ──
+      const thisTs = lastLocalModifiedTs || Date.now();
+      await fetch(SCRIPT_URL, {
+        method:"POST",
+        mode:"no-cors",
+        body: JSON.stringify({
+          action:"push",
+          user: syncUserName,
+          data:{
+            paddocks, silages, pastureMobs, barnCalc,
+            checks:{checks, date:checksDate},
+            scenarios: customScenarios,
+            dailyLogs,
+            weeklyJobs,
+            backlogJobs,
+            weeklyCompletedArchive,
+            toolboxMinutesList,
+            diary,
+            pendingAgenda,
+            lastModified: thisTs,
+          }
+        }),
+        headers:{"Content-Type":"text/plain"},
+      });
+      syncStatus="ok";
+      lastAppliedRemoteTs = thisTs;
+    }
     localStorage.setItem("pfe5_lastSync", new Date().toISOString());
-    try{localStorage.setItem("pfe5_lastApplied", String(lastAppliedRemoteTs));}catch(e){}
+    try{ localStorage.setItem("pfe5_lastApplied", String(lastAppliedRemoteTs)); }catch(e){}
   } catch(e){
     syncStatus = navigator.onLine ? "error" : "offline";
     console.warn("Sync push failed:", e.message);
@@ -1345,6 +1372,44 @@ async function pushToSheet(){
   pendingLocalEdit = false;
   pushInFlight = false;
   renderSyncBar();
+}
+// Apply a single delta change event to in-memory state.
+// Skips if the same section+key has a queued local change (local is in-flight).
+function applyRemoteChange(change){
+  const {section, key, value} = change;
+  if(pendingChanges.some(c => c.section===section && c.key===key)) return;
+  if(section==="paddock"){
+    if(value===null) paddocks=paddocks.filter(p=>p.id!==key);
+    else{const i=paddocks.findIndex(p=>p.id===key);if(i>=0)paddocks[i]=value;else paddocks.push(value);}
+  } else if(section==="silage"){
+    if(value===null) silages=silages.filter(s=>s.id!==key);
+    else{const i=silages.findIndex(s=>s.id===key);if(i>=0)silages[i]=value;else silages.push(value);}
+  } else if(section==="pasturemob"){
+    if(value===null) pastureMobs=pastureMobs.filter(m=>m.id!==key);
+    else{const i=pastureMobs.findIndex(m=>m.id===key);if(i>=0)pastureMobs[i]=value;else pastureMobs.push(value);}
+  } else if(section==="barncalc"){
+    if(value) barnCalc=value;
+  } else if(section==="weeklyjobs"){
+    if(key==="ticks") weeklyJobs.ticks=value;
+    else{if(!weeklyJobs.template)weeklyJobs.template={};weeklyJobs.template[key]=value;}
+  } else if(section==="backlog"){
+    if(value===null) backlogJobs=backlogJobs.filter(j=>j.id!==key);
+    else{const i=backlogJobs.findIndex(j=>j.id===key);if(i>=0)backlogJobs[i]=value;else backlogJobs.push(value);}
+  } else if(section==="checks"){
+    checks=value||{};
+  } else if(section==="dailylogs"){
+    dailyLogs=dailyLogs.filter(l=>l.dateISO!==key);
+    if(value){dailyLogs.unshift(value);if(dailyLogs.length>90)dailyLogs=dailyLogs.slice(0,90);}
+  } else if(section==="toolbox"){
+    if(value===null) toolboxMinutesList=toolboxMinutesList.filter(m=>m.id!==key);
+    else{const i=toolboxMinutesList.findIndex(m=>m.id===key);if(i>=0)toolboxMinutesList[i]=value;else toolboxMinutesList.push(value);}
+  } else if(section==="diary"){
+    if(value===null) diary=diary.filter(e=>e.id!==key);
+    else{const i=diary.findIndex(e=>e.id===key);if(i>=0)diary[i]=value;else diary.push(value);}
+  } else if(section==="agenda"){
+    if(value===null) pendingAgenda=pendingAgenda.filter(a=>a.id!==key);
+    else{const i=pendingAgenda.findIndex(a=>a.id===key);if(i>=0)pendingAgenda[i]=value;else pendingAgenda.push(value);}
+  }
 }
 async function pullFromSheet(){
   if(!SCRIPT_URL){ loadFromLocal(); return; }
@@ -1444,6 +1509,7 @@ function loadFromLocal(){
 }
 async function loadAll(){
   loadFromLocal();
+  try{ const pc=localStorage.getItem("pfe5_pending"); if(pc) pendingChanges=JSON.parse(pc); }catch(e){}
   const today=TODAY.toISOString().slice(0,10);
   if(checksDate!==today){checks={};checksDate=today;}
   // Render from localStorage immediately — no jarring flash of default data
@@ -1552,9 +1618,9 @@ function recalcBarn(){
     blendedME+=feed.pctDM*feed.me/100;
     blendedNDF+=feed.pctDM*feed.ndf/100;
     feedHTML+=`<tr>
-      <td><input value="${feed.name}" onchange="barnCalc.feeds[${idx}].name=this.value;saveAll()" style="border:none;background:transparent;font-size:13px;font-weight:600;width:100%;padding:0"></td>
-      <td style="text-align:center"><input type="number" value="${feed.pctDM}" step="0.5" min="0" max="100" onchange="barnCalc.feeds[${idx}].pctDM=parseFloat(this.value)||0;saveAll();recalcBarn()" class="barn-inp blue-input" style="width:56px;text-align:center;padding:5px 4px"></td>
-      <td style="text-align:center"><input type="number" value="${feed.dmPct}" step="0.1" min="1" max="100" onchange="barnCalc.feeds[${idx}].dmPct=parseFloat(this.value)||35;saveAll();recalcBarn()" class="barn-inp blue-input" style="width:56px;text-align:center;padding:5px 4px"></td>
+      <td><input value="${feed.name}" onchange="barnCalc.feeds[${idx}].name=this.value;barnChanged()" style="border:none;background:transparent;font-size:13px;font-weight:600;width:100%;padding:0"></td>
+      <td style="text-align:center"><input type="number" value="${feed.pctDM}" step="0.5" min="0" max="100" onchange="barnCalc.feeds[${idx}].pctDM=parseFloat(this.value)||0;barnChanged();recalcBarn()" class="barn-inp blue-input" style="width:56px;text-align:center;padding:5px 4px"></td>
+      <td style="text-align:center"><input type="number" value="${feed.dmPct}" step="0.1" min="1" max="100" onchange="barnCalc.feeds[${idx}].dmPct=parseFloat(this.value)||35;barnChanged();recalcBarn()" class="barn-inp blue-input" style="width:56px;text-align:center;padding:5px 4px"></td>
       <td style="text-align:right;font-weight:700">${fmt(wetPerLoad,0)} kg</td>
       <td style="text-align:right;font-weight:700">${fmt(wetKgDay,0)} kg</td>
     </tr>`;
@@ -1578,7 +1644,7 @@ function recalcBarn(){
     const wetPerLoad2=loads>0?wetKgDay2/loads:wetKgDay2;
     simpleFeedHTML+=`<tr style="border-bottom:1px solid var(--fog)">
       <td style="padding:10px 10px;font-weight:600;font-size:14px">${feed.name}</td>
-      <td style="padding:10px 8px;text-align:center"><input type="number" value="${feed.pctDM}" step="0.5" min="0" max="100" onchange="barnCalc.feeds[${idx}].pctDM=parseFloat(this.value)||0;saveAll();recalcBarn()" class="barn-inp blue-input" style="width:60px;text-align:center;padding:7px 4px"></td>
+      <td style="padding:10px 8px;text-align:center"><input type="number" value="${feed.pctDM}" step="0.5" min="0" max="100" onchange="barnCalc.feeds[${idx}].pctDM=parseFloat(this.value)||0;barnChanged();recalcBarn()" class="barn-inp blue-input" style="width:60px;text-align:center;padding:7px 4px"></td>
       <td style="padding:10px 10px;text-align:right;font-weight:800;font-size:18px">${fmt(wetPerLoad2,0)} kg</td>
     </tr>`;
   });
@@ -1604,7 +1670,7 @@ function recalcBarn(){
         <div style="font-weight:700;font-size:14px">${add.name}${add.isUrea?' ⚠':''}</div>
         ${add.note?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${add.note}</div>`:''}
         ${add.gHdDay!=null?`<div style="margin-top:6px;display:flex;align-items:center;gap:6px">
-          <input type="number" value="${add.gHdDay}" step="1" min="0" onchange="barnCalc.additives[${idx}].gHdDay=parseFloat(this.value)||0;saveAll();recalcBarn()" class="barn-inp blue-input" style="width:68px;text-align:center;padding:6px 4px">
+          <input type="number" value="${add.gHdDay}" step="1" min="0" onchange="barnCalc.additives[${idx}].gHdDay=parseFloat(this.value)||0;barnChanged();recalcBarn()" class="barn-inp blue-input" style="width:68px;text-align:center;padding:6px 4px">
           <span style="font-size:11px;color:var(--muted)">g/hd/day</span>
           ${add.isUrea?`<span style="font-size:11px;color:${isSafe?'var(--ok)':'var(--danger)'};font-weight:700">${pctCeil}% of ceiling</span>`:''}
         </div>`:'<div style="font-size:11px;color:var(--muted);margin-top:4px">Fixed daily amount</div>'}
@@ -1671,14 +1737,14 @@ function recalcBarn(){
 }
 function addBarnFeedRow(){
   barnCalc.feeds.push({name:"New feed",pctDM:0,dmPct:30,cp:10,me:10,ndf:40});
-  saveAll();recalcBarn();
+  barnChanged();recalcBarn();
 }
 function addBarnAdditiveRow(){
   barnCalc.additives.push({name:"New additive",gHdDay:5,note:"",isUrea:false});
-  saveAll();recalcBarn();
+  barnChanged();recalcBarn();
 }
 function applyBarnToFeedOut(){
-  saveAll();
+  barnChanged();
   switchTab("feedout");
   toast("✓ Barn figures updated in Feed Out");
 }
@@ -2371,6 +2437,7 @@ function toggleCheck(id){
       delete checks[dmKey];
     }
   }
+  queueChange("checks","daily",checks);
   saveAll();renderFeedOut();
   // Refresh overview silage bars if visible
   if(currentTab==="overview")renderOverview();
@@ -2401,10 +2468,11 @@ function toggleBarnCheck(){
       }
     });
   }
+  queueChange("checks","daily",checks);
   saveAll();renderFeedOut();
   if(currentTab==="overview")renderOverview();
 }
-function resetChecks(){if(!confirm("Reset all ticks?"))return;checks={};saveAll();renderFeedOut();toast("Feed-out list reset");}
+function resetChecks(){if(!confirm("Reset all ticks?"))return;checks={};queueChange("checks","daily",checks);saveAll();renderFeedOut();toast("Feed-out list reset");}
 function saveDailyLog(){
   const entry={
     date:TODAY.toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
@@ -2433,6 +2501,7 @@ function saveDailyLog(){
   dailyLogs=dailyLogs.filter(l=>l.dateISO!==entry.dateISO);
   dailyLogs.unshift(entry);
   if(dailyLogs.length>90)dailyLogs=dailyLogs.slice(0,90);
+  queueChange("dailylogs",entry.dateISO,entry);
   saveAll();
   toast("✓ Today's log saved");
 }
@@ -2855,11 +2924,13 @@ function savePaddock(){
     delete data.splits;
   }
   if(idx>=0)paddocks[idx]=data;else paddocks.push(data);
+  queueChange("paddock",data.id,data);
   saveAll();closeModal("edit-modal");renderPaddocks();renderFeedOut();renderBreaks();toast("✓ Paddock saved");
 }
 function deletePaddock(){
   if(!confirm("Remove this paddock?"))return;
   paddocks=paddocks.filter(p=>p.id!==editingId);
+  queueChange("paddock",editingId,null);
   saveAll();closeModal("edit-modal");renderPaddocks();
 }
 // ══════════════════════════════════════════════════════════
@@ -2930,6 +3001,7 @@ function saveSilage(){
     s.dmPct=parseFloat(document.getElementById("sil-dmpct")?.value)||s.dmPct;
     s.draw=parseFloat(document.getElementById("sil-draw")?.value)||0;
   }
+  queueChange("silage",id,s);
   saveAll();closeModal("silage-modal");renderOverview();renderFeedOut();toast("✓ Inventory updated");
 }
 function openAddStock(){document.getElementById("add-stock-modal").classList.add("open");}
@@ -2941,13 +3013,15 @@ function saveStock(){
   if(!name)return;
   const dmKg=kg*(dmPct/100);
   const ex=silages.find(s=>s.name.toLowerCase()===name.toLowerCase());
-  if(ex){ex.current+=dmKg;ex.opening+=dmKg;toast("✓ Added "+fmt(dmKg)+" kg DM to "+ex.name);}
+  if(ex){ex.current+=dmKg;ex.opening+=dmKg;toast("✓ Added "+fmt(dmKg)+" kg DM to "+ex.name);queueChange("silage",ex.id,ex);}
   else{
     const id="st_"+Date.now();
     const color=["#16A34A","#D68910","#2563EB","#9333EA","#C0392B"][silages.length%5];
-    silages.push({id,name,color,opening:dmKg,current:dmKg,draw:0,note:note||"Added "+new Date().toLocaleDateString("en-NZ")});
+    const newSil={id,name,color,opening:dmKg,current:dmKg,draw:0,note:note||"Added "+new Date().toLocaleDateString("en-NZ")};
+    silages.push(newSil);
     toast("✓ Created: "+name);
     if(!ALL_SUPP_TYPES.includes(name))ALL_SUPP_TYPES.push(name);
+    queueChange("silage",id,newSil);
   }
   saveAll();closeModal("add-stock-modal");renderOverview();
 }
@@ -2981,11 +3055,13 @@ function savePastureMob(){
   const data={id,name:document.getElementById("pm-name").value||"Mob",head:parseFloat(document.getElementById("pm-head").value)||0,supps:supps,note:document.getElementById("pm-note").value};
   const idx=pastureMobs.findIndex(m=>m.id===id);
   if(idx>=0)pastureMobs[idx]=data;else pastureMobs.push(data);
+  queueChange("pasturemob",data.id,data);
   saveAll();closeModal("pasture-modal");renderFeedOut();toast("✓ Mob saved");
 }
 function deletePastureMob(){
   if(!confirm("Remove?"))return;
   pastureMobs=pastureMobs.filter(m=>m.id!==editingPmId);
+  queueChange("pasturemob",editingPmId,null);
   saveAll();closeModal("pasture-modal");renderFeedOut();
 }
 function onFabClick(){
@@ -3208,63 +3284,47 @@ loadAll().then(()=>{
 let lastPullAt = Date.now();
 async function liveSyncPoll(){
   if(!SCRIPT_URL) return;
-  // Retry a previously failed push before attempting a pull
-  if(syncStatus === 'error' && !pushInFlight){ pushToSheet(); return; }
-  if(syncStatus === 'syncing' || pushInFlight) return; // don't pull while we're mid-push
-  if(pendingLocalEdit) return; // a local edit is queued/debounced — let it push first
-  if(document.hidden) return; // don't poll when tab/app is in background
-  if(document.querySelector('.modal-overlay.open')) return; // don't overwrite while user has an edit form open
+  if(syncStatus==='error' && !pushInFlight){ pushToSheet(); return; }
+  if(syncStatus==='syncing' || pushInFlight) return;
+  if(pendingLocalEdit) return;
+  if(document.hidden) return;
+  if(document.querySelector('.modal-overlay.open')) return;
   try{
-    const res = await fetch(SCRIPT_URL + '?action=pull&t=' + Date.now(), {method:'GET', mode:'cors'});
+    const since = lastAppliedRemoteTs || 0;
+    const res = await fetch(SCRIPT_URL+'?action=pullDelta&since='+since+'&t='+Date.now(), {method:'GET',mode:'cors'});
     const json = await res.json();
-    if(!json.ok || !json.data) return;
-    const d = json.data;
-    const remoteTs = Number(d.lastModified || 0);
-    const localTs = Number(lastLocalModifiedTs || 0);
-    if(remoteTs && remoteTs <= Math.max(lastAppliedRemoteTs || 0, localTs)) return; // stale or older than this phone's latest edit
-    // Update lastPullAt — always apply fresh data from cloud
+    if(!json.ok || !json.changes || !json.changes.length) return;
+    const changes = json.changes;
+    const maxTs = Math.max(...changes.map(c=>Number(c.ts)||0));
+    if(maxTs <= since) return; // nothing newer than what we've applied
     lastPullAt = Date.now();
-    if(remoteTs) lastAppliedRemoteTs = remoteTs;
-    // Apply remote data — same logic as pullFromSheet but without triggering another push
-    if(d.paddocks    && d.paddocks.length)    paddocks    = d.paddocks;
-    if(d.silages     && d.silages.length)     silages     = d.silages;
-    if(d.pastureMobs && d.pastureMobs.length) pastureMobs = d.pastureMobs;
-    if(d.barnCalc)                             barnCalc    = d.barnCalc;
-    if(d.scenarios   && d.scenarios.length)   customScenarios = d.scenarios;
-    if(d.dailyLogs   && d.dailyLogs.length)   dailyLogs   = d.dailyLogs;
-    if(d.checks && d.checks.date === TODAY.toISOString().slice(0,10)){
-      checks = d.checks.checks || {};
-      checksDate = d.checks.date;
-    }
-    if(d.weeklyJobs)                                       weeklyJobs             = d.weeklyJobs;
-    if(d.backlogJobs           && d.backlogJobs.length)    backlogJobs            = d.backlogJobs;
-    if(d.weeklyCompletedArchive)                           weeklyCompletedArchive = d.weeklyCompletedArchive;
-    if(d.toolboxMinutesList    && d.toolboxMinutesList.length) toolboxMinutesList = d.toolboxMinutesList;
-    // Cache locally
+    changes.forEach(c => applyRemoteChange(c));
+    lastAppliedRemoteTs = maxTs;
     try{
-      if(remoteTs) localStorage.setItem("pfe5_lastLocalModified", String(remoteTs));
+      localStorage.setItem('pfe5_lastApplied', String(maxTs));
       localStorage.setItem('pfe5_paddocks',    JSON.stringify(paddocks));
       localStorage.setItem('pfe5_silages',     JSON.stringify(silages));
       localStorage.setItem('pfe5_pasturemobs', JSON.stringify(pastureMobs));
       localStorage.setItem('pfe5_checks',      JSON.stringify({checks,date:checksDate}));
       localStorage.setItem('pfe5_dailylogs',   JSON.stringify(dailyLogs));
       localStorage.setItem('pfe5_barncalc',    JSON.stringify(barnCalc));
-      localStorage.setItem('pfe5_scenarios',   JSON.stringify(customScenarios));
       localStorage.setItem('pfe5_weeklyjobs',  JSON.stringify(weeklyJobs));
       localStorage.setItem('pfe5_backlog',     JSON.stringify(backlogJobs));
-      localStorage.setItem('pfe5_wjarchive',   JSON.stringify(weeklyCompletedArchive));
       localStorage.setItem('pfe5_toolbox',     JSON.stringify(toolboxMinutesList));
+      localStorage.setItem('pfe5_diary',       JSON.stringify(diary));
+      localStorage.setItem('pfe5_agenda',      JSON.stringify(pendingAgenda));
     }catch(e){}
-    // Re-render everything silently
     renderAll();
     renderFlagStrip();
     renderWeeklyJobs();
     renderBacklogJobs();
     renderToolboxEditor();
     renderToolboxHistory();
-    syncStatus = 'ok'; renderSyncBar();
+    renderToolboxAgenda();
+    renderDiaryTab();
+    syncStatus='ok'; renderSyncBar();
   }catch(e){
-    // Silently ignore — offline or script error
+    // Silently ignore — offline or Apps Script cold start
   }
 }
 setInterval(liveSyncPoll, 30000); // poll every 30 seconds
@@ -3327,6 +3387,7 @@ function resetWeeklyTicks(){
   archiveCompletedWeeklyJobs(ws);
   weeklyJobs.ticks = {};
   weeklyJobs.weekStart = getWeekStart();
+  queueChange("weeklyjobs","ticks",weeklyJobs.ticks);
   saveAll();
   renderWeeklyJobs();
   toast("✓ New week started — ticks cleared");
@@ -3416,6 +3477,7 @@ function renderWeeklyJobs(){
 function toggleWeeklyTick(day, idx){
   const key = day+"_"+idx;
   weeklyJobs.ticks[key] = !weeklyJobs.ticks[key];
+  queueChange("weeklyjobs","ticks",weeklyJobs.ticks);
   saveAll();
   renderWeeklyJobs();
 }
@@ -3464,6 +3526,7 @@ function saveWeeklyJobModal(){
       weeklyJobs.template[day].push(job);
     }
     weeklyJobEditIdx = null; weeklyJobEditDay = null;
+    queueChange("weeklyjobs",day,weeklyJobs.template[day]);
     saveAll();
     closeModal('add-weekly-job-modal');
     renderWeeklyJobs();
@@ -3472,6 +3535,7 @@ function saveWeeklyJobModal(){
   }
   if(!weeklyJobs.template[day]) weeklyJobs.template[day] = [];
   weeklyJobs.template[day].push(job);
+  queueChange("weeklyjobs",day,weeklyJobs.template[day]);
   saveAll();
   closeModal('add-weekly-job-modal');
   renderWeeklyJobs();
@@ -3495,6 +3559,7 @@ function removeWeeklyTask(day, idx){
     const oldKey = day + "_" + oldIdx;
     if(oldTicks[oldKey]) weeklyJobs.ticks[day + "_" + newIdx] = true;
   });
+  queueChange("weeklyjobs",day,weeklyJobs.template[day]);
   saveAll();
   renderWeeklyJobs();
   toast("✓ Weekly job removed");
@@ -3685,6 +3750,7 @@ function tickBacklogJob(id){
   job.done = true;
   job.doneAt = new Date().toISOString();
   job.doneBy = syncUserName || "Staff";
+  queueChange("backlog",id,job);
   saveAll();
   renderBacklogJobs();
   toast("✓ Job marked complete");
@@ -3692,6 +3758,7 @@ function tickBacklogJob(id){
 function removeBacklogJob(id){
   if(!confirm("Remove this job from the list?")) return;
   backlogJobs = backlogJobs.filter(j => j.id!==id);
+  queueChange("backlog",id,null);
   saveAll();
   renderBacklogJobs();
 }
@@ -3744,6 +3811,7 @@ function saveBacklogJobModal(){
     const job = backlogJobs.find(j=>j.id===backlogJobEditId);
     if(job){
       job.cat = cat; job.text = text; job.priority = priority; job.jobcat = jobcat; job.assignedTo = assignedTo; job.recurrence = recurrence||null;
+      queueChange("backlog",backlogJobEditId,job);
     }
     backlogJobEditId = null;
     saveAll();
@@ -3753,7 +3821,9 @@ function saveBacklogJobModal(){
     return;
   }
   const newId = "bx"+Date.now();
-  backlogJobs.push({id:newId, cat, text, priority, jobcat, assignedTo, recurrence:recurrence||null, lastGenerated:null, done:false, doneAt:null, doneBy:null});
+  const newJob = {id:newId, cat, text, priority, jobcat, assignedTo, recurrence:recurrence||null, lastGenerated:null, done:false, doneAt:null, doneBy:null};
+  backlogJobs.push(newJob);
+  queueChange("backlog",newId,newJob);
   saveAll();
   closeModal('add-backlog-job-modal');
   renderBacklogJobs();
@@ -3909,6 +3979,7 @@ function saveToolboxMinutes(){
   // Purge old completed backlog jobs now that they're captured in minutes
   purgeOldCompletedJobs();
   activeToolboxMinutes = null;
+  queueChange("toolbox",m.id,m);
   saveAll();
   renderToolboxEditor();
   renderToolboxHistory();
@@ -3933,6 +4004,7 @@ function deleteToolboxMinutes(id){
   if(!m) return;
   if(!confirm(`Delete toolbox minutes for ${m.dateLabel}?`)) return;
   toolboxMinutesList = toolboxMinutesList.filter(x => x.id !== id);
+  queueChange("toolbox",id,null);
   saveAll();
   renderToolboxHistory();
   toast("Minutes deleted");
@@ -4002,7 +4074,7 @@ function barnDmHdChanged(val){
     const el=document.getElementById("bc-dmpct");if(el)el.value=barnCalc.dmPct.toFixed(3);
   }
   recalcBarn();
-  saveAll();
+  barnChanged();
 }
 function toggleBarnSection(id,hdrEl){
   const body=document.getElementById(id);if(!body)return;
@@ -4437,8 +4509,10 @@ function saveDiaryEntry(){
   const todayStr=TODAY.toISOString().slice(0,10);
   const dateDisplay=`${TODAY.getDate()} ${MONTHS_SHORT[TODAY.getMonth()]} ${TODAY.getFullYear()}`;
   const id=typeof crypto!=="undefined"&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
-  diary.push({id,person:syncUserName,date:todayStr,dateDisplay,category:cat,notes,agentReviewed:false});
+  const entry={id,person:syncUserName,date:todayStr,dateDisplay,category:cat,notes,agentReviewed:false};
+  diary.push(entry);
   document.getElementById("diary-notes-input").value="";
+  queueChange("diary",id,entry);
   saveAll();
   renderDiaryTab();
   toast("✓ Entry saved");
@@ -4447,6 +4521,7 @@ function saveDiaryEntry(){
 function deleteDiaryEntry(id){
   if(!confirm("Delete this entry?"))return;
   diary=diary.filter(e=>e.id!==id);
+  queueChange("diary",id,null);
   saveAll();
   renderDiaryTab();
 }
@@ -4523,7 +4598,9 @@ function openAddAgendaItem(){
   const item=prompt("Agenda item:");
   if(!item||!item.trim())return;
   const id=typeof crypto!=="undefined"&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
-  pendingAgenda.push({id,addedDate:TODAY.toISOString().slice(0,10),category:"other",item:item.trim(),source:"Manual",priority:"normal",status:"included"});
+  const newItem={id,addedDate:TODAY.toISOString().slice(0,10),category:"other",item:item.trim(),source:"Manual",priority:"normal",status:"included"};
+  pendingAgenda.push(newItem);
+  queueChange("agenda",id,newItem);
   saveAll();
   renderToolboxAgenda();
   toast("✓ Added to agenda");
@@ -4533,6 +4610,7 @@ function toggleAgendaInclude(id){
   const a=pendingAgenda.find(x=>x.id===id);
   if(!a||a.status==="finalised")return;
   a.status=a.status==="excluded"?"included":"excluded";
+  queueChange("agenda",id,a);
   saveAll();
   renderToolboxAgenda();
 }
@@ -4540,6 +4618,7 @@ function toggleAgendaInclude(id){
 function removeAgendaItem(id){
   const a=pendingAgenda.find(x=>x.id===id);
   if(a)a.status="removed";
+  queueChange("agenda",id,a);
   saveAll();
   renderToolboxAgenda();
 }
@@ -4558,7 +4637,7 @@ function finaliseAgenda(){
   if(!ta){toast("Start a new minutes session first (+ New)");return;}
   if(ta.value&&!confirm("Replace current minutes draft with agenda?"))return;
   ta.value=text;
-  pendingAgenda.forEach(a=>{if(a.status==="included")a.status="finalised";});
+  pendingAgenda.forEach(a=>{if(a.status==="included"){a.status="finalised";queueChange("agenda",a.id,a);}});
   saveAll();
   renderToolboxAgenda();
   toast("✓ Agenda finalised — minutes pre-filled");
