@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="9.0">
+<meta name="app-version" content="9.1">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -364,7 +364,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v9.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v9.1</div>
     </div>
   </div>
   <div class="tabs">
@@ -1355,6 +1355,7 @@ async function pushToSheet(){
             toolboxMinutesList,
             diary,
             pendingAgenda,
+            measureHistory,
             lastModified: thisTs,
           }
         }),
@@ -1409,6 +1410,10 @@ function applyRemoteChange(change){
   } else if(section==="agenda"){
     if(value===null) pendingAgenda=pendingAgenda.filter(a=>a.id!==key);
     else{const i=pendingAgenda.findIndex(a=>a.id===key);if(i>=0)pendingAgenda[i]=value;else pendingAgenda.push(value);}
+  } else if(section==="scenarios"){
+    if(value) customScenarios=value;
+  } else if(section==="meashistory"){
+    if(value) measureHistory[key]=value;
   }
 }
 async function pullFromSheet(){
@@ -1441,6 +1446,7 @@ async function pullFromSheet(){
       if(d.toolboxMinutesList && d.toolboxMinutesList.length) toolboxMinutesList = d.toolboxMinutesList;
       if(d.diary            && d.diary.length)            diary            = d.diary;
       if(d.pendingAgenda    && d.pendingAgenda.length)    pendingAgenda    = d.pendingAgenda;
+      if(d.measureHistory)                                measureHistory   = d.measureHistory;
       try{
         localStorage.setItem("pfe5_paddocks",    JSON.stringify(paddocks));
         localStorage.setItem("pfe5_silages",     JSON.stringify(silages));
@@ -1455,6 +1461,7 @@ async function pullFromSheet(){
         localStorage.setItem("pfe5_toolbox",     JSON.stringify(toolboxMinutesList));
         localStorage.setItem("pfe5_diary",       JSON.stringify(diary));
         localStorage.setItem("pfe5_agenda",      JSON.stringify(pendingAgenda));
+        localStorage.setItem("pfe5_meashistory", JSON.stringify(measureHistory));
       }catch(e){}
       syncStatus="ok";
       if(d.lastModified){ lastAppliedRemoteTs = d.lastModified; try{localStorage.setItem("pfe5_lastApplied", String(lastAppliedRemoteTs));}catch(e){} }
@@ -1924,6 +1931,7 @@ function saveScenario(){
   };
   const idx=customScenarios.findIndex(s=>s.id===id);
   if(idx>=0)customScenarios[idx]=sc;else customScenarios.push(sc);
+  queueChange("scenarios","all",customScenarios);
   saveAll();closeModal("scenario-modal");renderBreaks();toast("✓ Scenario saved");
 }
 function deleteScenario(){
@@ -1931,7 +1939,8 @@ function deleteScenario(){
   if(!confirm("Delete this scenario?"))return;
   customScenarios=customScenarios.filter(s=>s.id!==editingScenarioId);
   // Reset any paddocks using this scenario to daily
-  paddocks.forEach(p=>{if(p.freq===editingScenarioId)p.freq="daily";});
+  paddocks.forEach(p=>{if(p.freq===editingScenarioId){p.freq="daily";queueChange("paddock",p.id,p);}});
+  queueChange("scenarios","all",customScenarios);
   saveAll();closeModal("scenario-modal");renderBreaks();
 }
 // ══════════════════════════════════════════════════════════
@@ -2426,6 +2435,7 @@ function toggleCheck(id){
         const deduct=Math.min(item.dmTotal,sil.current);
         sil.current=Math.max(0,parseFloat((sil.current-deduct).toFixed(1)));
         checks[dmKey]={silId:sil.id,dm:deduct};
+        queueChange("silage",sil.id,sil);
       }
     }
   } else {
@@ -2433,7 +2443,7 @@ function toggleCheck(id){
     const stored=checks[dmKey];
     if(stored){
       const sil=silages.find(s=>s.id===stored.silId);
-      if(sil){sil.current=Math.min(sil.opening,parseFloat((sil.current+stored.dm).toFixed(1)));}
+      if(sil){sil.current=Math.min(sil.opening,parseFloat((sil.current+stored.dm).toFixed(1)));queueChange("silage",sil.id,sil);}
       delete checks[dmKey];
     }
   }
@@ -2456,6 +2466,7 @@ function toggleBarnCheck(){
       const deduct=Math.min(feedDM,sil.current);
       sil.current=Math.max(0,parseFloat((sil.current-deduct).toFixed(1)));
       checks[`barn_dm_${idx}`]={silId:sil.id,dm:deduct};
+      queueChange("silage",sil.id,sil);
     });
   }else{
     // Un-ticking — reverse deductions
@@ -2463,7 +2474,7 @@ function toggleBarnCheck(){
       const stored=checks[`barn_dm_${idx}`];
       if(stored){
         const sil=silages.find(s=>s.id===stored.silId);
-        if(sil)sil.current=Math.min(sil.opening,parseFloat((sil.current+stored.dm).toFixed(1)));
+        if(sil){sil.current=Math.min(sil.opening,parseFloat((sil.current+stored.dm).toFixed(1)));queueChange("silage",sil.id,sil);}
         delete checks[`barn_dm_${idx}`];
       }
     });
@@ -2595,7 +2606,7 @@ function renderBreaks(){
   if(!html)html=`<div class="empty-state">No active paddocks</div>`;
   document.getElementById("break-list").innerHTML=html;
 }
-function setFreq(id,freq){const p=paddocks.find(x=>x.id===id);if(p){p.freq=freq;saveAll();renderBreaks();}}
+function setFreq(id,freq){const p=paddocks.find(x=>x.id===id);if(p){p.freq=freq;queueChange("paddock",id,p);saveAll();renderBreaks();}}
 function toggleBreakCheck(id){
   const k=`brk_${id}`;
   const p=paddocks.find(x=>x.id===id);
@@ -2606,9 +2617,11 @@ function toggleBreakCheck(id){
     if(p&&checks[haKey]){
       p.used=Math.max(0,parseFloat((p.used-checks[haKey]).toFixed(4)));
       delete checks[haKey];
+      queueChange("paddock",id,p);
       renderOverview();
     }
     checks[k]=false;
+    queueChange("checks","daily",checks);
     saveAll();renderBreaks();
   } else if(isShift&&p){
     // Ticking on for a shift day — open confirm modal
@@ -2616,6 +2629,7 @@ function toggleBreakCheck(id){
   } else {
     // Not a shift day — simple tick
     checks[k]=true;
+    queueChange("checks","daily",checks);
     saveAll();renderBreaks();
   }
 }
@@ -2647,6 +2661,8 @@ function confirmBreakShift(){
     checks[`brk_ha_${_breakConfirmId}`]=ha; // store for reversal
   }
   checks[`brk_${_breakConfirmId}`]=true;
+  queueChange("checks","daily",checks);
+  if(ha>0) queueChange("paddock",_breakConfirmId,p);
   saveAll();
   closeModal("break-confirm-modal");
   renderBreaks();
@@ -2655,7 +2671,7 @@ function confirmBreakShift(){
   if(ha>0)toast(`✓ ${p.name}: ${ha} ha added · ${fmt(p.used,3)} ha used total`);
   else toast(`✓ Break confirmed`);
 }
-function resetBreakChecks(){if(!confirm("Reset all break ticks?"))return;Object.keys(checks).filter(k=>k.startsWith("brk_")).forEach(k=>delete checks[k]);saveAll();renderBreaks();toast("Break ticks reset");}
+function resetBreakChecks(){if(!confirm("Reset all break ticks?"))return;Object.keys(checks).filter(k=>k.startsWith("brk_")).forEach(k=>delete checks[k]);queueChange("checks","daily",checks);saveAll();renderBreaks();toast("Break ticks reset");}
 // ══════════════════════════════════════════════════════════
 // HISTORY
 // ══════════════════════════════════════════════════════════
@@ -3244,6 +3260,8 @@ function confirmApply(){
   if(!measureHistory[id])measureHistory[id]=[];
   measureHistory[id].push({date:TODAY.toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"2-digit"}),ha:r,note:what==="total"?"Total size":"Area used"});
   pendingPaddockId=null;
+  queueChange("paddock",id,p);
+  queueChange("meashistory",id,measureHistory[id]);
   saveAll();closeModal("apply-modal");toast(`✓ ${p.name}: ${r} ha`);
 }
 function calcPolyArea(points){
@@ -4015,7 +4033,10 @@ function pushActionsToBacklog(){
   const lines = ta.value.split("\n").map(l=>l.trim()).filter(Boolean);
   let added = 0;
   lines.forEach(line => {
-    backlogJobs.push({id:"bx"+Date.now()+Math.random(), cat:"Jobs To Do", text:line, done:false, doneAt:null, doneBy:null});
+    const newId="bx"+Date.now()+Math.random();
+    const newJob={id:newId, cat:"Jobs To Do", text:line, done:false, doneAt:null, doneBy:null};
+    backlogJobs.push(newJob);
+    queueChange("backlog",newId,newJob);
     added++;
   });
   if(added){
