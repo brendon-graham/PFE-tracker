@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="8.5">
+<meta name="app-version" content="8.6">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -364,7 +364,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v8.5</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v8.6</div>
     </div>
   </div>
   <div class="tabs">
@@ -1231,6 +1231,8 @@ if(outdoorMode) document.body.classList.add('outdoor');
 // ══════════════════════════════════════════════════════════
 const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw33AEvk6YJG9ORgyytNc38YiSBZDtw6RNs_Ffu_1CTrenpY4imAnWMln2D9CmCWMQtAQ/exec";
 let SCRIPT_URL = (()=>{
+  // Dev guard: never connect to Sheets from localhost/preview environments
+  if(location.hostname === "localhost" || location.hostname === "127.0.0.1") return "";
   const stored = localStorage.getItem("pfe5_scriptUrl");
   // Always use the default URL — no disconnected state on shared farm devices
   if(stored && stored !== "__disconnected__") return stored;
