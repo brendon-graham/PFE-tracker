@@ -454,14 +454,14 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <div id="mob-settings-body" class="barn-calc-section" style="display:none;margin-bottom:8px">
       <div class="barn-input-row">
         <div><div class="barn-inp-label">Stock class</div><input class="barn-inp" id="bc-stockclass" value="Barn Stags" onchange="barnCalc.stockClass=this.value;saveAll();recalcBarn()"></div>
-        <div><div class="barn-inp-label">Head count</div><input class="barn-inp blue-input" type="number" id="bc-head" value="1220" oninput="recalcBarn()"></div>
+        <div><div class="barn-inp-label">Head count</div><input class="barn-inp blue-input" type="number" id="bc-head" value="1220" oninput="recalcBarn();saveAll()"></div>
       </div>
       <div class="barn-input-row">
-        <div><div class="barn-inp-label">Feeds per day</div><input class="barn-inp blue-input" type="number" id="bc-loads" value="2" oninput="recalcBarn()"></div>
-        <div><div class="barn-inp-label">Avg liveweight (kg)</div><input class="barn-inp blue-input" type="number" id="bc-lw" value="210" oninput="recalcBarn()"></div>
+        <div><div class="barn-inp-label">Feeds per day</div><input class="barn-inp blue-input" type="number" id="bc-loads" value="2" oninput="recalcBarn();saveAll()"></div>
+        <div><div class="barn-inp-label">Avg liveweight (kg)</div><input class="barn-inp blue-input" type="number" id="bc-lw" value="210" oninput="recalcBarn();saveAll()"></div>
       </div>
       <div class="barn-input-row" style="border-bottom:none">
-        <div><div class="barn-inp-label">DM intake (% BW)</div><input class="barn-inp blue-input" type="number" id="bc-dmpct" value="2.5" step="0.1" oninput="recalcBarn()"></div>
+        <div><div class="barn-inp-label">DM intake (% BW)</div><input class="barn-inp blue-input" type="number" id="bc-dmpct" value="2.5" step="0.1" oninput="recalcBarn();saveAll()"></div>
         <div><div class="barn-inp-label">DM / head / day</div><div class="stat-box" style="margin-top:4px"><div class="stat-val" id="bc-dmhd">—</div><div class="stat-sub">kg DM</div></div></div>
       </div>
     </div>
@@ -1246,6 +1246,7 @@ let syncTimer = null;
 let lastAppliedRemoteTs = Number(localStorage.getItem("pfe5_lastApplied") || 0);   // newest lastModified we've actually applied (from a push we made, or a pull)
 let pendingLocalEdit = false;  // true from the moment saveAll() runs until the debounced push completes
 let pushInFlight = false;
+let pushBlocked = false;       // true during startup pull — prevents stale data racing ahead of the pull
 let lastLocalModifiedTs = Number(localStorage.getItem("pfe5_lastLocalModified") || 0);
 const SYNC_DEBOUNCE_MS = 2500; // wait 2.5s after last change before pushing
 function setSyncUrl(url, name){
@@ -1302,6 +1303,7 @@ function saveAll(){
 }
 async function pushToSheet(){
   if(!SCRIPT_URL) return;
+  if(pushBlocked) return; // startup pull still in flight — loadAll() will reschedule after pull completes
   syncStatus="syncing"; pushInFlight=true; renderSyncBar();
   const thisTs = lastLocalModifiedTs || Date.now();
   try{
@@ -1448,7 +1450,11 @@ async function loadAll(){
   renderToolboxAgenda(); renderDiaryTab();
   renderFlagStrip();
   if(SCRIPT_URL){
-    await pullFromSheet(); // then update with cloud data
+    pushBlocked = true;  // block any push until we've pulled — prevents stale data overwriting the sheet
+    await pullFromSheet();
+    pushBlocked = false;
+    // If the user made a change while the pull was in flight, send it now (with correct pulled data in memory)
+    if(pendingLocalEdit){ clearTimeout(syncTimer); syncTimer = setTimeout(pushToSheet, SYNC_DEBOUNCE_MS); }
   } else {
     syncStatus="idle"; renderSyncBar();
   }
@@ -1521,7 +1527,7 @@ function recalcBarn(){
   const lw=parseFloat(document.getElementById("bc-lw")?.value)||barnCalc.lw;
   const dmPct=parseFloat(document.getElementById("bc-dmpct")?.value)||barnCalc.dmPct;
   const loads=parseFloat(document.getElementById("bc-loads")?.value)||barnCalc.loads;
-  if(document.getElementById("bc-head")){barnCalc.head=head;barnCalc.lw=lw;barnCalc.dmPct=dmPct;barnCalc.loads=loads;saveAll();}
+  if(document.getElementById("bc-head")){barnCalc.head=head;barnCalc.lw=lw;barnCalc.dmPct=dmPct;barnCalc.loads=loads;}
   const dmHd=(lw*dmPct/100);
   const totDM=head*dmHd;
   // Update hero input (only when not actively typing in it)
@@ -3994,6 +4000,7 @@ function barnDmHdChanged(val){
     const el=document.getElementById("bc-dmpct");if(el)el.value=barnCalc.dmPct.toFixed(3);
   }
   recalcBarn();
+  saveAll();
 }
 function toggleBarnSection(id,hdrEl){
   const body=document.getElementById(id);if(!body)return;
