@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="9.2">
+<meta name="app-version" content="9.3">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v9.0";
+  const APP_VERSION = "pfe-v9.3";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -364,7 +364,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v9.2</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v9.3</div>
     </div>
   </div>
   <div class="tabs">
@@ -1381,9 +1381,9 @@ async function pushToSheet(){
 }
 // Apply a single delta change event to in-memory state.
 // Skips if the same section+key has a queued local change (local is in-flight).
-function applyRemoteChange(change){
+function applyRemoteChange(change, force=false){
   const {section, key, value} = change;
-  if(pendingChanges.some(c => c.section===section && c.key===key)) return;
+  if(!force && pendingChanges.some(c => c.section===section && c.key===key)) return;
   if(section==="paddock"){
     if(value===null) paddocks=paddocks.filter(p=>p.id!==key);
     else{const i=paddocks.findIndex(p=>p.id===key);if(i>=0)paddocks[i]=value;else paddocks.push(value);}
@@ -1433,6 +1433,8 @@ async function pullFromSheet(){
         // Already applied this exact version — nothing to do.
         syncStatus="ok"; renderSyncBar();
         renderWeeklyJobs(); renderBacklogJobs(); renderToolboxEditor(); renderToolboxHistory(); renderToolboxAgenda(); renderDiaryTab();
+        // Still push any locally-queued changes that haven't reached the sheet yet
+        if(pendingChanges.length > 0){ clearTimeout(syncTimer); syncTimer = setTimeout(pushToSheet, SYNC_DEBOUNCE_MS); }
         return;
       }
       if(d.paddocks    && d.paddocks.length)    paddocks    = d.paddocks;
@@ -1468,6 +1470,24 @@ async function pullFromSheet(){
         localStorage.setItem("pfe5_agenda",      JSON.stringify(pendingAgenda));
         localStorage.setItem("pfe5_meashistory", JSON.stringify(measureHistory));
       }catch(e){}
+      // Re-apply any pending local changes on top of pulled data — prevents offline edits from being overwritten by the pull
+      if(pendingChanges.length > 0){
+        pendingChanges.forEach(c => applyRemoteChange(c, true));
+        try{
+          localStorage.setItem("pfe5_paddocks",    JSON.stringify(paddocks));
+          localStorage.setItem("pfe5_silages",     JSON.stringify(silages));
+          localStorage.setItem("pfe5_pasturemobs", JSON.stringify(pastureMobs));
+          localStorage.setItem("pfe5_checks",      JSON.stringify({checks,date:checksDate}));
+          localStorage.setItem("pfe5_barncalc",    JSON.stringify(barnCalc));
+          localStorage.setItem("pfe5_weeklyjobs",  JSON.stringify(weeklyJobs));
+          localStorage.setItem("pfe5_backlog",     JSON.stringify(backlogJobs));
+          localStorage.setItem("pfe5_toolbox",     JSON.stringify(toolboxMinutesList));
+          localStorage.setItem("pfe5_diary",       JSON.stringify(diary));
+          localStorage.setItem("pfe5_agenda",      JSON.stringify(pendingAgenda));
+          localStorage.setItem("pfe5_meashistory", JSON.stringify(measureHistory));
+        }catch(e){}
+        clearTimeout(syncTimer); syncTimer = setTimeout(pushToSheet, SYNC_DEBOUNCE_MS);
+      }
       syncStatus="ok";
       if(d.lastModified){ lastAppliedRemoteTs = d.lastModified; try{localStorage.setItem("pfe5_lastApplied", String(lastAppliedRemoteTs));}catch(e){} }
     } else {
@@ -1534,7 +1554,7 @@ async function loadAll(){
     await pullFromSheet();
     pushBlocked = false;
     // If the user made a change while the pull was in flight, send it now (with correct pulled data in memory)
-    if(pendingLocalEdit){ clearTimeout(syncTimer); syncTimer = setTimeout(pushToSheet, SYNC_DEBOUNCE_MS); }
+    if(pendingLocalEdit || pendingChanges.length > 0){ clearTimeout(syncTimer); syncTimer = setTimeout(pushToSheet, SYNC_DEBOUNCE_MS); }
   } else {
     syncStatus="idle"; renderSyncBar();
   }
