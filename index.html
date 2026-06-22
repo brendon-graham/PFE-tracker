@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="9.1">
+<meta name="app-version" content="9.2">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -364,7 +364,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v9.1</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v9.2</div>
     </div>
   </div>
   <div class="tabs">
@@ -1336,8 +1336,13 @@ async function pushToSheet(){
       const maxTs = Math.max(...changesToSend.map(c => c.ts));
       lastAppliedRemoteTs = maxTs;
     } else {
-      // ── Full-state fallback — uninstrumented handlers (scenarios, break ticks, route order) ──
-      const thisTs = lastLocalModifiedTs || Date.now();
+      // ── Full-state fallback — only fires if local is provably newer than the last remote we applied.
+      // Prevents a user whose pull failed from pushing stale localStorage (with a fake Date.now() timestamp)
+      // and overwriting everyone else's live data.
+      if (!lastLocalModifiedTs || lastLocalModifiedTs <= lastAppliedRemoteTs) {
+        syncStatus = "ok"; pendingLocalEdit = false; pushInFlight = false; renderSyncBar(); return;
+      }
+      const thisTs = lastLocalModifiedTs;
       await fetch(SCRIPT_URL, {
         method:"POST",
         mode:"no-cors",
@@ -3578,6 +3583,7 @@ function removeWeeklyTask(day, idx){
     if(oldTicks[oldKey]) weeklyJobs.ticks[day + "_" + newIdx] = true;
   });
   queueChange("weeklyjobs",day,weeklyJobs.template[day]);
+  queueChange("weeklyjobs","ticks",weeklyJobs.ticks);
   saveAll();
   renderWeeklyJobs();
   toast("✓ Weekly job removed");
@@ -4232,6 +4238,8 @@ function generateRecurringJobs(){
     const exists=(weeklyJobs.template[dayName]||[]).some(t=>(typeof t==='object'?t.text:t)===job.text);
     if(!exists){weeklyJobs.template[dayName].push({text:job.text,id:'rec_'+job.id,fromRecurring:true});}
     job.lastGenerated=todayISO;
+    queueChange("weeklyjobs",dayName,weeklyJobs.template[dayName]);
+    queueChange("backlog",job.id,job);
     changed=true;
   });
   if(changed){saveAll();renderWeeklyJobs();}
