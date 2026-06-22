@@ -2246,7 +2246,7 @@ function renderFeedOut(){
     const stTotWet=g.filter(i=>i.todayFeed).reduce((a,i)=>a+i.wetToday,0);
     const isBaleageGroup=st==="Baleage";
     const stTotBales=isBaleageGroup?g.filter(i=>i.todayFeed&&i.balesToday!=null).reduce((a,i)=>a+i.balesToday,0):0;
-    const groupTotLabel=isBaleageGroup&&stTotBales>0?`${fmt(stTotBales,1)} bales today`:stTotWet>0?`${fmt(stTotWet,0)} kg wet today`:"not today";
+    const groupTotLabel=isBaleageGroup&&stTotBales>0?`${Math.round(stTotBales)} bales today`:stTotWet>0?`${fmt(Math.round(stTotWet/100)*100,0)} kg wet today`:"not today";
     cHTML+=`<div class="supp-group">
       <div class="supp-group-head"><span>${st}</span><span style="font-size:11px">${groupTotLabel}</span></div>`;
     g.forEach(item=>{
@@ -2256,20 +2256,20 @@ function renderFeedOut(){
       const isBaleage=item.type==="Baleage";
       const wetShowAmt=skip?(item.wetDay*(item.nextMult||1)):item.wetToday;
       const balesShowAmt=skip?(item.balesDay!=null?item.balesDay*(item.nextMult||1):null):item.balesToday;
-      // For baleage: show bales per feeder; for others: kg wet
+      // For baleage: show bales per feeder; for others: kg wet (rounded to nearest 100)
       let qtyHTML="";
       if(isBaleage&&!skip){
-        const balesTotal=item.balesToday!=null?item.balesToday:null;
-        const perFeeder=balesTotal!=null&&item.feeders>0?balesTotal/item.feeders:null;
-        qtyHTML=`<div style="font-weight:800;font-size:14px">${balesTotal!=null?fmt(balesTotal,1)+" bales":fmt(item.wetToday,0)+" kg wet"}</div>
-          ${perFeeder!=null?`<div style="font-size:11px;color:var(--ok);font-weight:700">↳ ${fmt(perFeeder,1)} bales × ${item.feeders} feeder${item.feeders>1?"s":""}</div>`:""}
+        const balesTotal=item.balesToday!=null?Math.round(item.balesToday):null;
+        const perFeeder=balesTotal!=null&&item.feeders>0?Math.round(balesTotal/item.feeders):null;
+        qtyHTML=`<div style="font-weight:800;font-size:14px">${balesTotal!=null?balesTotal+" bales":fmt(Math.round(item.wetToday/100)*100,0)+" kg wet"}</div>
+          ${perFeeder!=null?`<div style="font-size:11px;color:var(--ok);font-weight:700">↳ ${perFeeder} bales × ${item.feeders} feeder${item.feeders>1?"s":""}</div>`:""}
           <div class="supp-qty-sub">${item.mult>1?item.mult+"× cover":""}</div>`;
       }else if(skip){
         const nextBales=isBaleage&&balesShowAmt!=null;
-        qtyHTML=`<div style="color:var(--muted)">${nextBales?fmt(balesShowAmt,1)+" bales":fmt(wetShowAmt,0)+" kg wet"}</div>
+        qtyHTML=`<div style="color:var(--muted)">${nextBales?Math.round(balesShowAmt)+" bales":fmt(Math.round(wetShowAmt/100)*100,0)+" kg wet"}</div>
           <div class="supp-qty-sub">next feed${item.nextMult>1?" ("+item.nextMult+"× cover)":""}</div>`;
       }else{
-        qtyHTML=`<div style="font-weight:800;font-size:14px">${fmt(wetShowAmt,0)} kg wet</div>
+        qtyHTML=`<div style="font-weight:800;font-size:14px">${fmt(Math.round(wetShowAmt/100)*100,0)} kg wet</div>
           <div class="supp-qty-sub">${item.mult>1?item.mult+"× cover today":"today's load"}</div>`;
       }
       // Split paddock breakdown (e.g. Waikato, Bottom 60)
@@ -2277,7 +2277,7 @@ function renderFeedOut(){
       if(item.splits&&item.splits.length>1&&!skip){
         splitHTML=`<div style="margin-top:8px;border-top:1px dashed var(--fog);padding-top:6px">`;
         item.splits.forEach(sp=>{
-          const spWet=wetShowAmt*sp.headFrac;
+          const spWet=Math.round((wetShowAmt*sp.headFrac)/100)*100;
           const spWidth=(item.widthFrac||sp.widthFrac||0.5)*100; // % of total break width isn't storable here, just label
           splitHTML+=`<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;color:var(--bark)">
             <span>↳ ${sp.label} (${Math.round(sp.headFrac*100)}% mob)</span>
