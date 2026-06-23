@@ -416,7 +416,6 @@ body.outdoor .supp-qty div{font-size:16px!important}
       <button class="btn btn-secondary btn-sm" style="flex:1" onclick="openSyncModal()">⚙ Sync settings</button>
     </div>
     <div id="ov-feed-position"></div>
-    <div class="sec">Pasture</div><div id="ov-pasture-summary"></div>
     <div class="sec">Crop paddocks</div><div id="ov-crop-summary"></div>
     <div class="sec">Supplement inventory</div><div id="ov-silage"></div>
     <div class="sec">Daily supplement draw (all sources)</div>
@@ -2230,83 +2229,39 @@ function renderOverview(){
   sd+=`</div>`;
   document.getElementById("ov-supprow").innerHTML=sd;
 
-  // ── Pasture blocks summary ──────────────────────────────
-  const wgCalc=calcPastureBlock(pastureBlocks.winterGraze);
-  const asCalc=calcPastureBlock(pastureBlocks.autumnSaved);
-  function pastureRow(label,b,c){
-    const hasMobs=(b.mobs||[]).length>0;
-    const col=c.daysRemaining===null?"var(--muted)":c.daysRemaining<30?"var(--danger)":c.daysRemaining<60?"var(--warn)":"var(--ok)";
-    return`<div class="card" style="margin-bottom:8px;border-left:4px solid ${col};cursor:pointer" onclick="switchTab('pasture')">
-      <div class="card-body" style="padding:10px 14px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div>
-            <div style="font-size:13px;font-weight:800">${label}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px">${b.area} ha · ${b.wastage}% wastage · ${(b.mobs||[]).length} mob${(b.mobs||[]).length!==1?"s":""}</div>
-          </div>
-          <div style="text-align:right">
-            <div style="font-size:18px;font-weight:900;color:${col};letter-spacing:-.5px">${c.daysRemaining!==null?c.daysRemaining+"d":"—"}</div>
-            <div style="font-size:10px;color:var(--muted)">days left</div>
-          </div>
-        </div>
-        ${hasMobs?`<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-          <div style="background:var(--fog);border-radius:6px;padding:5px 10px;font-size:12px"><span style="color:var(--muted)">Remaining</span> <b>${fmtDM(c.remainingDM)}</b></div>
-          <div style="background:var(--fog);border-radius:6px;padding:5px 10px;font-size:12px"><span style="color:var(--muted)">Daily draw</span> <b>${c.dailyDraw>0?fmtDM(c.dailyDraw):"—"}</b></div>
-          <div style="background:var(--fog);border-radius:6px;padding:5px 10px;font-size:12px"><span style="color:var(--muted)">Est. finish</span> <b>${c.finishDate?fmtPDate(c.finishDate):"—"}</b></div>
-        </div>`:`<div style="font-size:12px;color:var(--muted);margin-top:6px">No mobs added — tap to set up</div>`}
-      </div>
-    </div>`;
-  }
-  document.getElementById("ov-pasture-summary").innerHTML=pastureRow("Winter Graze",pastureBlocks.winterGraze,wgCalc)+pastureRow("Autumn Saved",pastureBlocks.autumnSaved,asCalc);
-
-  // ── Overall feed position ───────────────────────────────
+  // ── Overall feed position — total available vs total required ──
   const yr=TODAY.getFullYear();
   const targetDate=new Date(yr,8,15);
   const daysToTarget=Math.max(0,Math.ceil((targetDate-TODAY)/86400000));
+  // Available
   const totalSilageDM=silages.reduce((s,i)=>s+i.current,0);
+  const totalCropDM=active.reduce((a,p)=>a+calcP(p).dmRem,0);
+  const wgCalc=calcPastureBlock(pastureBlocks.winterGraze);
+  const asCalc=calcPastureBlock(pastureBlocks.autumnSaved);
+  const totalPastureDM=Math.max(0,wgCalc.remainingDM)+Math.max(0,asCalc.remainingDM);
+  const totalAvailable=totalSilageDM+totalCropDM+totalPastureDM;
+  // Required — all mob draws to 15 Sep
   const barnDailyDM=barnCalc.head*(barnCalc.lw*barnCalc.dmPct/100);
   const totalSuppDM=paddocks.filter(p=>p.active).reduce((a,p)=>a+(p.supps||[]).reduce((b,s)=>b+p.head*s.dmH,0),0)+
     pastureMobs.reduce((a,m)=>a+(m.supps||[]).reduce((b,s)=>b+m.head*s.dmH,0),0);
-  const dailyOnSilage=barnDailyDM+totalSuppDM;
-  const silageRequired=dailyOnSilage*daysToTarget;
-  const silageSurplus=totalSilageDM-silageRequired;
-  function feedRow(label,avail,required,daily,days){
-    const surplus=avail-required;
-    const col=surplus<0?"var(--danger)":days<60?"var(--warn)":"var(--ok)";
-    const sign=surplus>=0?"+":"";
-    return`<div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--fog);gap:8px">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:700">${label}</div>
-        <div style="font-size:11px;color:var(--muted)">${fmtDM(avail)} on hand · ${fmtDM(daily)}/day</div>
+  const pastureMobDaily=wgCalc.dailyDraw+asCalc.dailyDraw;
+  const totalDailyRequired=barnDailyDM+totalSuppDM+totalCropDay+pastureMobDaily;
+  const totalRequired=totalDailyRequired*daysToTarget;
+  const netPosition=totalAvailable-totalRequired;
+  const isDeficit=netPosition<0;
+  const posCol=isDeficit?"var(--danger)":netPosition<totalRequired*0.1?"var(--warn)":"var(--ok)";
+  const feedPosHtml=`<div class="card" style="margin-bottom:10px;border-top:4px solid ${posCol}">
+    <div class="card-body" style="padding:12px 14px">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:10px">Feed position — ${daysToTarget} days to 15 Sep</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div class="stat-box"><div class="stat-label">Total available</div><div class="stat-val">${(totalAvailable/1000).toFixed(0)}t</div><div class="stat-sub">kg DM all sources</div></div>
+        <div class="stat-box"><div class="stat-label">Total required</div><div class="stat-val">${(totalRequired/1000).toFixed(0)}t</div><div class="stat-sub">all mobs to 15 Sep</div></div>
       </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:14px;font-weight:800;color:${col}">${sign}${fmtDM(Math.abs(surplus))} ${surplus>=0?"surplus":"short"}</div>
-        <div style="font-size:10px;color:var(--muted)">${days>300?"—":days+"d cover"} · ${daysToTarget}d target</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;background:${isDeficit?"#FEE2E2":netPosition<totalRequired*0.1?"#FEF3C7":"#DCFCE7"};border-radius:var(--rs);padding:10px 14px">
+        <div style="font-size:13px;font-weight:700;color:${posCol}">${isDeficit?"Deficit":"Surplus"}</div>
+        <div style="font-size:22px;font-weight:900;color:${posCol};letter-spacing:-.5px">${isDeficit?"-":"+"}${(Math.abs(netPosition)/1000).toFixed(0)}t DM</div>
       </div>
-    </div>`;
-  }
-  // Crop paddock pool
-  const totalCropDM=active.reduce((a,p)=>a+calcP(p).dmRem,0);
-  const cropDailyDM=totalCropDay; // already calculated above (kg DM/day from crop mobs)
-  const cropRequired=cropDailyDM*daysToTarget;
-  const cropDays=cropDailyDM>0?Math.floor(totalCropDM/cropDailyDM):999;
-  const silDays=dailyOnSilage>0?Math.floor(totalSilageDM/dailyOnSilage):999;
-  const wgDays=wgCalc.daysRemaining||0;
-  const asDays=asCalc.daysRemaining||0;
-  const cropDeficit=cropDailyDM>0&&cropDays<daysToTarget;
-  const allOk=silageSurplus>=0&&!cropDeficit&&(wgCalc.daysRemaining===null||wgDays>=daysToTarget)&&(asCalc.daysRemaining===null||asDays>=daysToTarget);
-  const anyDeficit=silageSurplus<0||cropDeficit||(wgCalc.dailyDraw>0&&wgDays<daysToTarget)||(asCalc.dailyDraw>0&&asDays<daysToTarget);
-  const overallCol=anyDeficit?"var(--danger)":allOk?"var(--ok)":"var(--warn)";
-  const overallLabel=anyDeficit?"Deficit":"Surplus";
-  const feedPosHtml=`<div class="card" style="margin-bottom:10px;border-top:4px solid ${overallCol}">
-    <div class="card-body" style="padding:10px 14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)">Feed position</div>
-        <div style="font-size:12px;font-weight:800;color:${overallCol};background:${anyDeficit?"#FEE2E2":allOk?"#DCFCE7":"#FEF3C7"};padding:3px 10px;border-radius:20px">${overallLabel} — ${daysToTarget}d to 15 Sep</div>
-      </div>
-      ${feedRow("Silage & supplements",totalSilageDM,silageRequired,dailyOnSilage,silDays)}
-      ${cropDailyDM>0?feedRow("Crop paddocks",totalCropDM,cropRequired,cropDailyDM,cropDays):""}
-      ${wgCalc.dailyDraw>0?feedRow("Winter Graze",wgCalc.remainingDM,wgCalc.dailyDraw*daysToTarget,wgCalc.dailyDraw,wgDays):""}
-      ${asCalc.dailyDraw>0?feedRow("Autumn Saved",asCalc.remainingDM,asCalc.dailyDraw*daysToTarget,asCalc.dailyDraw,asDays):""}
+      <div style="margin-top:8px;font-size:11px;color:var(--muted)">Silage ${(totalSilageDM/1000).toFixed(0)}t · Crop ${(totalCropDM/1000).toFixed(0)}t · Pasture ${(totalPastureDM/1000).toFixed(0)}t &nbsp;|&nbsp; ${(totalDailyRequired/1000).toFixed(1)}t DM/day all mobs</div>
     </div>
   </div>`;
   document.getElementById("ov-feed-position").innerHTML=feedPosHtml;
