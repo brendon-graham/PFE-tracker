@@ -2291,7 +2291,7 @@ function renderOverview(){
   const anyDeficit=silageSurplus<0||(wgCalc.dailyDraw>0&&wgDays<daysToTarget)||(asCalc.dailyDraw>0&&asDays<daysToTarget);
   const overallCol=anyDeficit?"var(--danger)":allOk?"var(--ok)":"var(--warn)";
   const overallLabel=anyDeficit?"Deficit":"Surplus";
-  let fp=`<div class="card" style="margin-bottom:10px;border-top:4px solid ${overallCol}">
+  const feedPosHtml=`<div class="card" style="margin-bottom:10px;border-top:4px solid ${overallCol}">
     <div class="card-body" style="padding:10px 14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)">Feed position</div>
@@ -2302,7 +2302,7 @@ function renderOverview(){
       ${asCalc.dailyDraw>0?feedRow("Autumn Saved",asCalc.remainingDM,asCalc.dailyDraw*daysToTarget,asCalc.dailyDraw,asDays):""}
     </div>
   </div>`;
-  document.getElementById("ov-feed-position").innerHTML=fp;
+  document.getElementById("ov-feed-position").innerHTML=feedPosHtml;
 }
 // ══════════════════════════════════════════════════════════
 // PADDOCKS
