@@ -3356,6 +3356,10 @@ function installPWA(){
   });
 }
 // ══════════════════════════════════════════════════════════
+// WEEKLY JOBS — constants (must be before INIT calls renderWeeklyJobs)
+// ══════════════════════════════════════════════════════════
+const WJ_DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Next Week","Extra"];
+// ══════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════
 document.getElementById("header-date").textContent=`Winter 2026 · ${DOW_NAMES[TODAY.getDay()]} ${fmtDate(TODAY)}`;
@@ -3420,7 +3424,6 @@ setInterval(checkForUpdate, 5*60*1000);
 // ══════════════════════════════════════════════════════════
 // WEEKLY JOBS — data & logic
 // ══════════════════════════════════════════════════════════
-const WJ_DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Next Week","Extra"];
 const DEFAULT_WEEKLY_TEMPLATE = {
   Monday:    ["B11 Peas 15sec 2nd notch (buller)","Fix fault in boots","Refill Sale Stag PK trailers","Shift all crops","GW3 to GW4","Marks Pdk to Boat House","GW4 to K6","Swap North Harbour & Bulls tapes","Swap North Harbour & Bull"],
   Tuesday:   ["Pick up collars in Zig zag","Back Zig Zag to Robyn's","B11 Male Peas","Check all crop breaks","Shift CY2, CY4 & Woodings","Refill Sire PK","Top Mains to Btm Mains","K9 Creek to Rob Roy","Change Tyre (Henry)"],
