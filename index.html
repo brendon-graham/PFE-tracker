@@ -3485,6 +3485,9 @@ function installPWA(){
 // ══════════════════════════════════════════════════════════
 const WJ_DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Next Week","Extra"];
 const BACKLOG_CATS = ["Jobs To Do","Holes to Fill","Poplars Block","Weed Wipe","Paddocks to Mulch","Gorse","Potholes","Completed"];
+// Pasture block constants — must be before loadAll() call (temporal dead zone guard)
+const PASTURE_BLOCK_DEFS=[{key:"winterGraze",label:"Winter Graze"},{key:"autumnSaved",label:"Autumn Saved"}];
+const PASTURE_MONTH_NAMES=["","","","","May","June","July","August","September","","",""];
 // ══════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════
@@ -4846,9 +4849,6 @@ function finaliseAgenda(){
 // ══════════════════════════════════════════════════════════
 // PASTURE BLOCKS — Winter Graze & Autumn Saved
 // ══════════════════════════════════════════════════════════
-const PASTURE_BLOCK_DEFS=[{key:"winterGraze",label:"Winter Graze"},{key:"autumnSaved",label:"Autumn Saved"}];
-const PASTURE_MONTH_NAMES=["","","","","May","June","July","August","September","","",""];
-
 function calcPastureGrowth(b,fromDate,toDate){
   const yr=parseInt(b.startDate.slice(0,4));
   const seasonStart=new Date(yr,4,15);
