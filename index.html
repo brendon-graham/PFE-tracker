@@ -1257,7 +1257,7 @@ let toolboxMinutesList = [];
 let diary = [];          // daily notes from Brendon, Henry, Mark
 let pendingAgenda = [];  // agenda items built by nightly Claude agent
 let activeToolboxMinutes = null;
-// weeklyEditMode already declared above
+let weeklyEditMode = false;
 let addJobTargetCat = "Jobs To Do";
 let weeklyJobEditIdx = null, weeklyJobEditDay = null;
 let backlogJobEditId = null;
@@ -3440,7 +3440,6 @@ const DEFAULT_WEEKLY_TEMPLATE = {
 if (!localStorage.getItem('pfe5_weeklyjobs')) {
   weeklyJobs = { template: JSON.parse(JSON.stringify(DEFAULT_WEEKLY_TEMPLATE)), ticks: {}, weekStart: "" };
 }
-weeklyEditMode = false;
 function getWeekStart(){
   const d = new Date();
   const day = d.getDay(); // 0=Sun
