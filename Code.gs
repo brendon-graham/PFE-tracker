@@ -119,7 +119,8 @@ function handlePull(ss) {
       barnCalc:    readObjectSection(ss, SHEETS.barnCalc),
       checks:      readObjectSection(ss, SHEETS.checks),
       weeklyJobs:  readObjectSection(ss, SHEETS.weeklyJobs),
-      lastModified: lmRow ? (lmRow.lastModified || 0) : 0,
+      lastModified:   lmRow ? (lmRow.lastModified   || 0) : 0,
+      barnScheduleTs: lmRow ? (lmRow.barnScheduleTs || 0) : 0,
       syncTime: new Date().toISOString(),
     }
   };
@@ -150,12 +151,25 @@ function handlePush(ss, data, user) {
   if (data.backlogJobs) writeArraySection(ss, SHEETS.backlogJobs, data.backlogJobs);
   if (data.weeklyCompletedArchive) writeArraySection(ss, SHEETS.weeklyArchive, data.weeklyCompletedArchive);
   if (data.toolboxMinutesList)     writeArraySection(ss, SHEETS.toolbox, data.toolboxMinutesList);
-  if (data.barnSchedule)  writeArraySection(ss, SHEETS.barnSchedule,  data.barnSchedule);
-  if (data.pastureBlocks) writeObjectSection(ss, SHEETS.pastureBlocks, data.pastureBlocks);
+  // barnSchedule — only write if this device actually modified it (timestamp guard)
+  const curBsTs = Number((lmRow||{}).barnScheduleTs || 0);
+  const inBsTs  = Number(data.barnScheduleTs || 0);
+  if (data.barnSchedule && !(inBsTs > 0 && curBsTs > 0 && inBsTs <= curBsTs)) {
+    writeArraySection(ss, SHEETS.barnSchedule, data.barnSchedule);
+  }
+  // pastureBlocks — only write if this device actually modified it (timestamp guard)
+  if (data.pastureBlocks) {
+    const curPbTs = Number((readObjectSection(ss, SHEETS.pastureBlocks) || {})._ts || 0);
+    const inPbTs  = Number(data.pastureBlocks._ts || 0);
+    if (!(inPbTs > 0 && curPbTs > 0 && inPbTs <= curPbTs)) {
+      writeObjectSection(ss, SHEETS.pastureBlocks, data.pastureBlocks);
+    }
+  }
   if (data.dailyLogs)   mergeDailyLogs(ss, data.dailyLogs);
 
   const lastModified = data.lastModified || Date.now();
-  writeObjectSection(ss, SHEETS.lastModified, { lastModified, pushedBy: userName, ts });
+  const newBsTs = (inBsTs > curBsTs) ? inBsTs : curBsTs;
+  writeObjectSection(ss, SHEETS.lastModified, { lastModified, pushedBy: userName, ts, barnScheduleTs: newBsTs });
   appendSyncLog(ss, { ts: lastModified, user: userName, action: "push", section: "full", key: "" });
 
   return { pushed: ts };

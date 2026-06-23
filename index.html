@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="10.4">
+<meta name="app-version" content="10.5">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v10.4";
+  const APP_VERSION = "pfe-v10.5";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.4</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.5</div>
     </div>
   </div>
   <div class="tabs">
@@ -1332,6 +1332,7 @@ let syncStatus = "idle"; // idle | syncing | ok | error | offline
 let syncPending = false;
 let syncTimer = null;
 let lastSheetsTs = Number(localStorage.getItem('pfe5_lastSheetsTs') || 0);
+let barnScheduleTs = Number(localStorage.getItem('pfe5_barnscheduleTs') || 0);
 let pushInFlight = false;
 const SYNC_DEBOUNCE_MS = 1500;
 function setSyncUrl(url, name){
@@ -1375,6 +1376,7 @@ function saveToLocal(){
     localStorage.setItem("pfe5_diary",       JSON.stringify(diary));
     localStorage.setItem("pfe5_agenda",      JSON.stringify(pendingAgenda));
     localStorage.setItem("pfe5_barnschedule",JSON.stringify(barnSchedule));
+    localStorage.setItem("pfe5_barnscheduleTs",String(barnScheduleTs));
     localStorage.setItem("pfe5_pastureblocks",JSON.stringify(pastureBlocks));
   }catch(e){}
 }
@@ -1414,6 +1416,7 @@ async function pushToSheet(){
           pendingAgenda,
           measureHistory,
           barnSchedule,
+          barnScheduleTs,
           pastureBlocks,
           lastModified: thisTs,
         }
@@ -1449,8 +1452,8 @@ function applyPullData(d){
   if(d.diary            && d.diary.length)            diary            = d.diary;
   if(d.pendingAgenda    && d.pendingAgenda.length)    pendingAgenda    = d.pendingAgenda;
   if(d.measureHistory)                                measureHistory   = d.measureHistory;
-  if(d.barnSchedule)                                  barnSchedule     = d.barnSchedule;
-  if(d.pastureBlocks)                                 pastureBlocks    = d.pastureBlocks;
+  if(d.barnSchedule){barnSchedule=d.barnSchedule;if(d.barnScheduleTs)barnScheduleTs=d.barnScheduleTs;}
+  if(d.pastureBlocks) pastureBlocks=d.pastureBlocks;
 }
 async function pullFromSheet(){
   if(!SCRIPT_URL){ loadFromLocal(); return; }
@@ -1502,6 +1505,7 @@ function loadFromLocal(){
     const dr=localStorage.getItem("pfe5_diary");       if(dr) diary=JSON.parse(dr);
     const ag=localStorage.getItem("pfe5_agenda");      if(ag) pendingAgenda=JSON.parse(ag);
     const bs=localStorage.getItem("pfe5_barnschedule");if(bs) barnSchedule=JSON.parse(bs);
+    const bsts=localStorage.getItem("pfe5_barnscheduleTs");if(bsts) barnScheduleTs=Number(bsts);
     const pb=localStorage.getItem("pfe5_pastureblocks");if(pb) pastureBlocks=JSON.parse(pb);
   }catch(e){}
   // Migration: add dmPct to existing silage entries, add Baleage if missing, add silageId to barn feeds
@@ -1841,6 +1845,7 @@ function saveBarnScheduleEntry(){
   };
   const idx = barnSchedule.findIndex(e=>e.id===id);
   if(idx>=0) barnSchedule[idx]=entry; else barnSchedule.push(entry);
+  barnScheduleTs=Date.now();
   saveAll();
   closeModal("barn-schedule-modal");
   renderBarnSchedule();
@@ -1850,6 +1855,7 @@ function deleteBarnScheduleEntry(){
   if(!_editingBarnSchedId) return;
   if(!confirm("Remove this mob booking?")) return;
   barnSchedule = barnSchedule.filter(e=>e.id!==_editingBarnSchedId);
+  barnScheduleTs=Date.now();
   saveAll();
   closeModal("barn-schedule-modal");
   renderBarnSchedule();
@@ -5016,6 +5022,7 @@ function openPastureSettings(key){
 }
 
 function savePastureSettings(){
+  pastureBlocks._ts=Date.now();
   const b=pastureBlocks[editingPastureKey];
   b.area=parseFloat(document.getElementById("pbs-area").value)||b.area;
   b.openingCover=parseFloat(document.getElementById("pbs-opening").value)||b.openingCover;
@@ -5071,6 +5078,7 @@ function savePastureMob(){
   }else{
     b.mobs.push({id:"pm_"+Date.now(),name,head,dmPerHead,startDate});
   }
+  pastureBlocks._ts=Date.now();
   saveAll();
   closeModal("pasture-mob-modal");
   renderPastureBlocks();
@@ -5080,6 +5088,7 @@ function deletePastureMob(){
   if(!confirm("Remove this mob?"))return;
   const b=pastureBlocks[editingPastureKey];
   b.mobs=(b.mobs||[]).filter(m=>m.id!==editingPastureMobId);
+  pastureBlocks._ts=Date.now();
   saveAll();
   closeModal("pasture-mob-modal");
   renderPastureBlocks();
@@ -5117,6 +5126,7 @@ function savePastureUpdate(){
   }else{
     b.coverUpdates.push({date,cover,note});
   }
+  pastureBlocks._ts=Date.now();
   saveAll();
   closeModal("pasture-update-modal");
   renderPastureBlocks();
@@ -5128,6 +5138,7 @@ function deletePastureUpdate(){
   const updates=(b.coverUpdates||[]).slice().sort((a,z)=>z.date.localeCompare(a.date));
   updates.splice(editingPastureUpdateIdx,1);
   b.coverUpdates=updates;
+  pastureBlocks._ts=Date.now();
   saveAll();
   closeModal("pasture-update-modal");
   renderPastureBlocks();
