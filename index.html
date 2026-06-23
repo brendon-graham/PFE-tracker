@@ -4335,9 +4335,11 @@ function renderFlagStrip(){
   }
 
   // 4. Checks not done (any required check not ticked today)
-  const missedChecks=weeklyJobs.filter(j=>j.days&&j.days.includes(TODAY.getDay())&&!checks[`wj_${j.id}`]);
-  if(missedChecks.length){
-    flags.push({label:`📋 ${missedChecks.length} check${missedChecks.length>1?"s":""} pending`,cls:"flag-info",tab:"jobstodo"});
+  const todayName = WJ_DAYS[TODAY.getDay()===0?6:TODAY.getDay()-1];
+  const todayTasks = (weeklyJobs.template&&weeklyJobs.template[todayName])||[];
+  const missedCount = todayTasks.filter((_,i)=>!weeklyJobs.ticks||!weeklyJobs.ticks[todayName+"_"+i]).length;
+  if(missedCount>0){
+    flags.push({label:`📋 ${missedCount} job${missedCount>1?"s":""} pending today`,cls:"flag-info",tab:"jobstodo"});
   }
 
   // 5. Any paddock deficit >= 10 days
