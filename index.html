@@ -3356,9 +3356,10 @@ function installPWA(){
   });
 }
 // ══════════════════════════════════════════════════════════
-// WEEKLY JOBS — constants (must be before INIT calls renderWeeklyJobs)
+// CONSTANTS — must be declared before INIT (loadAll calls render functions synchronously)
 // ══════════════════════════════════════════════════════════
 const WJ_DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Next Week","Extra"];
+const BACKLOG_CATS = ["Jobs To Do","Holes to Fill","Poplars Block","Weed Wipe","Paddocks to Mulch","Gorse","Potholes","Completed"];
 // ══════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════
@@ -3636,7 +3637,6 @@ function removeWeeklyTask(day, idx){
 // ══════════════════════════════════════════════════════════
 // JOBS TO DO (BACKLOG) — data & logic
 // ══════════════════════════════════════════════════════════
-const BACKLOG_CATS = ["Jobs To Do","Holes to Fill","Poplars Block","Weed Wipe","Paddocks to Mulch","Gorse","Potholes","Completed"];
 const DEFAULT_BACKLOG = [
   // Jobs To Do
   {id:"b1",cat:"Jobs To Do",text:"Tidy up shed below spookies bull pine to be cut up",done:false,doneAt:null,doneBy:null},
