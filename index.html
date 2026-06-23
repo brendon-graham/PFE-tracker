@@ -1147,6 +1147,7 @@ const DOW_NAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const DOW_FULL=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const ALL_SUPP_TYPES=["Bulk Silage","Lucerne Silage","Baleage","Silage/Urea/DCP","Beet","PKE","Barley","Peas","Other"];
 const FREQ_LABELS={"daily":"Daily","mwf":"Mon·Wed·Fri","mf":"Mon–Fri","2d":"Every 2nd day"};
+const SUPP_DM_PCT={Baleage:38,Beet:24.79,PKE:88,"Bulk Silage":35,"Lucerne Silage":35,"Silage/Urea/DCP":35,Barley:86,Peas:85,Other:35};
 // ──────────────────────────────────────────────────────────
 // BUILT-IN BREAK FREQUENCY SCENARIOS
 // Each scenario defines a multiplier for each day of week (0=Sun..6=Sat)
@@ -2825,7 +2826,7 @@ function renderSuppRows(containerId,rowArr){
     const dmPctVal=s.dmPct!=null?s.dmPct:(defaultDmPct[s.type]||33);
     return`<div style="display:grid;grid-template-columns:1fr 80px 70px 1fr${isBaleage?" 60px":""} 30px;gap:6px;align-items:start;margin-bottom:10px">
       <div>
-        <select onchange="${arrName}[${i}].type=this.value;${arrName}[${i}].dmPct=${JSON.stringify(defaultDmPct)}[this.value]||33;renderSuppRows('${containerId}',${arrName})" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;width:100%">
+        <select onchange="${arrName}[${i}].type=this.value;${arrName}[${i}].dmPct=SUPP_DM_PCT[this.value]||33;renderSuppRows('${containerId}',${arrName})" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;width:100%">
           ${ALL_SUPP_TYPES.map(t=>`<option${t===s.type?" selected":""}>${t}</option>`).join("")}
         </select>
         ${isBaleage?`<div style="font-size:10px;color:var(--muted);margin-top:3px">kg DM/hd/day total</div>`:""}
