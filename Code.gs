@@ -17,8 +17,9 @@ const SHEETS = {
   backlogJobs: "BacklogJobs",
   weeklyArchive: "WeeklyArchive",
   toolbox:     "ToolboxMinutes",
-  barnSchedule: "BarnSchedule",
+  barnSchedule:  "BarnSchedule",
   // Object sections — single JSON row
+  pastureBlocks: "PastureBlocks",
   barnCalc:    "BarnCalc",
   checks:      "Checks",
   weeklyJobs:  "WeeklyJobs",
@@ -113,7 +114,8 @@ function handlePull(ss) {
       backlogJobs: readArraySection(ss, SHEETS.backlogJobs),
       weeklyCompletedArchive: readArraySection(ss, SHEETS.weeklyArchive),
       toolboxMinutesList:     readArraySection(ss, SHEETS.toolbox),
-      barnSchedule: readArraySection(ss, SHEETS.barnSchedule),
+      barnSchedule:  readArraySection(ss, SHEETS.barnSchedule),
+      pastureBlocks: readObjectSection(ss, SHEETS.pastureBlocks),
       barnCalc:    readObjectSection(ss, SHEETS.barnCalc),
       checks:      readObjectSection(ss, SHEETS.checks),
       weeklyJobs:  readObjectSection(ss, SHEETS.weeklyJobs),
@@ -148,7 +150,8 @@ function handlePush(ss, data, user) {
   if (data.backlogJobs) writeArraySection(ss, SHEETS.backlogJobs, data.backlogJobs);
   if (data.weeklyCompletedArchive) writeArraySection(ss, SHEETS.weeklyArchive, data.weeklyCompletedArchive);
   if (data.toolboxMinutesList)     writeArraySection(ss, SHEETS.toolbox, data.toolboxMinutesList);
-  if (data.barnSchedule) writeArraySection(ss, SHEETS.barnSchedule, data.barnSchedule);
+  if (data.barnSchedule)  writeArraySection(ss, SHEETS.barnSchedule,  data.barnSchedule);
+  if (data.pastureBlocks) writeObjectSection(ss, SHEETS.pastureBlocks, data.pastureBlocks);
   if (data.dailyLogs)   mergeDailyLogs(ss, data.dailyLogs);
 
   const lastModified = data.lastModified || Date.now();

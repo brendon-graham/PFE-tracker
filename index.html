@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="10.0">
+<meta name="app-version" content="10.1">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v10.0";
+  const APP_VERSION = "pfe-v10.1";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -345,6 +345,22 @@ body.outdoor .supp-qty div{font-size:16px!important}
 .target-surplus{background:#D1FAE5;color:#065F46;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;display:inline-block}
 .target-deficit{background:#FEE2E2;color:#991B1B;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;display:inline-block}
 .target-ontarget{background:#DBEAFE;color:#1D4ED8;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;display:inline-block}
+/* Pasture blocks */
+.pasture-block{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);margin-bottom:12px;overflow:hidden;border-top:4px solid var(--grass2)}
+.pasture-block-header{background:var(--soil);color:var(--cream);padding:12px 16px;display:flex;justify-content:space-between;align-items:center}
+.pasture-block-title{font-size:15px;font-weight:800;letter-spacing:-.3px}
+.pasture-block-sub{font-size:11px;color:var(--straw);margin-top:2px}
+.pasture-summary-bar{background:var(--grass);color:white;padding:12px 14px;display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.pasture-summary-item{text-align:center}
+.pasture-summary-val{font-size:16px;font-weight:800;letter-spacing:-.3px}
+.pasture-summary-lbl{font-size:9px;font-weight:700;text-transform:uppercase;opacity:.8;margin-top:1px}
+.pasture-mob-row{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--fog);gap:10px}
+.pasture-mob-row:last-child{border-bottom:none}
+.pasture-mob-info{flex:1;min-width:0}
+.pasture-mob-name{font-size:13px;font-weight:700}
+.pasture-mob-sub{font-size:11px;color:var(--muted);margin-top:1px}
+.pasture-update-row{display:flex;align-items:center;padding:8px 14px;border-bottom:1px solid var(--fog);gap:10px;font-size:12px}
+.pasture-update-row:last-child{border-bottom:none}
 </style>
 </head>
 <body>
@@ -364,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.1</div>
     </div>
   </div>
   <div class="tabs">
@@ -374,6 +390,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <button class="tab-btn"         onclick="switchTab('breaks')">Breaks</button>
     <button class="tab-btn"         onclick="switchTab('paddocks')">Paddocks</button>
     <button class="tab-btn"         onclick="switchTab('barn')">🏚 Barn</button>
+    <button class="tab-btn"         onclick="switchTab('pasture')">🌿 Pasture</button>
     <button class="tab-btn"         onclick="switchTab('jobstodo')">🔧 Jobs</button>
     <button class="tab-btn"         onclick="switchTab('toolbox')">📝 Toolbox</button>
     <button class="tab-btn"         onclick="switchTab('diary')">📓 Diary</button>
@@ -559,6 +576,13 @@ body.outdoor .supp-qty div{font-size:16px!important}
       <div id="bc-daily-guide" style="padding:14px"></div>
     </div>
     <div style="height:70px"></div>
+  </div>
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- PASTURE TAB -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div id="tab-pasture" class="tab-panel">
+    <div id="pasture-blocks-container"></div>
+    <div style="height:80px"></div>
   </div>
   <!-- BREAKS -->
   <div id="tab-breaks" class="tab-panel">
@@ -1265,6 +1289,21 @@ let backlogJobEditId = null;
 let barnMixLog = [];
 let feedOutRouteOrder = {};
 let barnSchedule = []; // upcoming mob bookings — synced via full push
+let pastureBlocks = {
+  winterGraze: {
+    area: 1088, openingCover: 1700, residual: 1600, wastage: 12,
+    startDate: "2026-05-15",
+    growthRates: { May: 12, June: 5, July: 5, August: 10, September: 20 },
+    coverUpdates: [], mobs: []
+  },
+  autumnSaved: {
+    area: 500, openingCover: 2200, residual: 1600, wastage: 15,
+    startDate: "2026-05-15",
+    growthRates: { May: 12, June: 5, July: 5, August: 10, September: 20 },
+    coverUpdates: [], mobs: []
+  }
+};
+let editingPastureKey = null, editingPastureMobId = null, editingPastureUpdateIdx = null;
 let outdoorMode = localStorage.getItem('pfe5_outdoor') === '1';
 if(outdoorMode) document.body.classList.add('outdoor');
 // ══════════════════════════════════════════════════════════
@@ -1329,6 +1368,7 @@ function saveToLocal(){
     localStorage.setItem("pfe5_diary",       JSON.stringify(diary));
     localStorage.setItem("pfe5_agenda",      JSON.stringify(pendingAgenda));
     localStorage.setItem("pfe5_barnschedule",JSON.stringify(barnSchedule));
+    localStorage.setItem("pfe5_pastureblocks",JSON.stringify(pastureBlocks));
   }catch(e){}
 }
 function saveAll(){
@@ -1367,6 +1407,7 @@ async function pushToSheet(){
           pendingAgenda,
           measureHistory,
           barnSchedule,
+          pastureBlocks,
           lastModified: thisTs,
         }
       }),
@@ -1402,6 +1443,7 @@ function applyPullData(d){
   if(d.pendingAgenda    && d.pendingAgenda.length)    pendingAgenda    = d.pendingAgenda;
   if(d.measureHistory)                                measureHistory   = d.measureHistory;
   if(d.barnSchedule)                                  barnSchedule     = d.barnSchedule;
+  if(d.pastureBlocks)                                 pastureBlocks    = d.pastureBlocks;
 }
 async function pullFromSheet(){
   if(!SCRIPT_URL){ loadFromLocal(); return; }
@@ -1453,6 +1495,7 @@ function loadFromLocal(){
     const dr=localStorage.getItem("pfe5_diary");       if(dr) diary=JSON.parse(dr);
     const ag=localStorage.getItem("pfe5_agenda");      if(ag) pendingAgenda=JSON.parse(ag);
     const bs=localStorage.getItem("pfe5_barnschedule");if(bs) barnSchedule=JSON.parse(bs);
+    const pb=localStorage.getItem("pfe5_pastureblocks");if(pb) pastureBlocks=JSON.parse(pb);
   }catch(e){}
   // Migration: add dmPct to existing silage entries, add Baleage if missing, add silageId to barn feeds
   const SIL_DMPCT_DEFAULTS={bulk:35,lucmz:35,lbeet:24.79,pke:88,peas:85,baleage:38};
@@ -1513,6 +1556,7 @@ function renderAll(){
   if(t==="paddocks")  renderPaddocks();
   if(t==="feedout")   renderFeedOut();
   if(t==="barn")      {renderBarnCalc();renderBarnMixHistory();}
+  if(t==="pasture")   renderPastureBlocks();
   if(t==="breaks")    renderBreaks();
   if(t==="history")   renderHistory();
   if(t==="diary")     renderDiaryTab();
@@ -2055,7 +2099,7 @@ function closeModal(id){document.getElementById(id).classList.remove("open");}
 // TABS
 // ══════════════════════════════════════════════════════════
 let currentTab="overview";
-const TAB_NAMES=["overview","weeklyjobs","feedout","breaks","paddocks","barn","jobstodo","toolbox","diary","history"];
+const TAB_NAMES=["overview","weeklyjobs","feedout","breaks","paddocks","barn","pasture","jobstodo","toolbox","diary","history"];
 function switchTab(t){
   document.querySelectorAll(".tab-panel").forEach(el=>{el.classList.remove("active");el.style.display="none";});
   document.querySelectorAll(".tab-btn").forEach((btn,i)=>{btn.classList.remove("active");if(TAB_NAMES[i]===t)btn.classList.add("active");});
@@ -2064,12 +2108,13 @@ function switchTab(t){
     if(t==="measure"){panel.style.display="flex";panel.classList.add("active");setTimeout(()=>{if(map)map.invalidateSize();},150);}
     else{panel.style.display="block";panel.classList.add("active");}
   }
-  document.getElementById("fab-add").style.display=(t==="measure"||t==="history"||t==="barn"||t==="diary")?"none":"flex";
+  document.getElementById("fab-add").style.display=(t==="measure"||t==="history"||t==="barn"||t==="pasture"||t==="diary")?"none":"flex";
   currentTab=t;
   if(t==="overview")  renderOverview();
   if(t==="paddocks")  renderPaddocks();
   if(t==="feedout")   renderFeedOut();
   if(t==="barn")      {renderBarnCalc();renderBarnMixHistory();}
+  if(t==="pasture")   renderPastureBlocks();
   if(t==="breaks")    renderBreaks();
   if(t==="history")   renderHistory();
   if(t==="diary")     renderDiaryTab();
@@ -4722,6 +4767,267 @@ function finaliseAgenda(){
   renderToolboxAgenda();
   toast("✓ Agenda finalised — minutes pre-filled");
 }
+// ══════════════════════════════════════════════════════════
+// PASTURE BLOCKS — Winter Graze & Autumn Saved
+// ══════════════════════════════════════════════════════════
+const PASTURE_BLOCK_DEFS=[{key:"winterGraze",label:"Winter Graze"},{key:"autumnSaved",label:"Autumn Saved"}];
+const PASTURE_MONTH_NAMES=["","","","","May","June","July","August","September","","",""];
+
+function calcPastureGrowth(b,fromDate,toDate){
+  const yr=parseInt(b.startDate.slice(0,4));
+  const seasonStart=new Date(yr,4,15);
+  const seasonEnd=new Date(yr,8,15);
+  const start=new Date(Math.max(fromDate.getTime(),seasonStart.getTime()));
+  const end=new Date(Math.min(toDate.getTime(),seasonEnd.getTime()));
+  if(end<=start)return 0;
+  let growthPerHa=0;
+  let cur=new Date(start);
+  while(cur<end){
+    const mName=PASTURE_MONTH_NAMES[cur.getMonth()];
+    growthPerHa+=(mName&&b.growthRates&&b.growthRates[mName])?b.growthRates[mName]:0;
+    cur=new Date(cur.getTime()+86400000);
+  }
+  return growthPerHa*b.area*(1-b.wastage/100);
+}
+
+function calcPastureBlock(b){
+  const todayStr=TODAY.toISOString().slice(0,10);
+  const todayMs=TODAY.getTime();
+  const yr=parseInt(b.startDate.slice(0,4));
+  const seasonEnd=new Date(yr,8,15);
+  const validUpdates=(b.coverUpdates||[]).filter(u=>u.date<=todayStr).sort((a,z)=>z.date.localeCompare(a.date));
+  const latest=validUpdates[0];
+  const calibDate=latest?latest.date:b.startDate;
+  const calibCover=latest?Number(latest.cover):Number(b.openingCover);
+  const calibMs=new Date(calibDate).getTime();
+  const growthToEnd=calcPastureGrowth(b,new Date(calibDate),seasonEnd);
+  const totalAvailable=(calibCover-b.residual)*b.area*(1-b.wastage/100)+growthToEnd;
+  let consumed=0;
+  for(const mob of(b.mobs||[])){
+    const mobMs=new Date(mob.startDate).getTime();
+    const drawStart=Math.max(calibMs,mobMs);
+    if(drawStart<todayMs){
+      const days=Math.floor((todayMs-drawStart)/86400000);
+      consumed+=mob.head*mob.dmPerHead*days;
+    }
+  }
+  const remainingDM=totalAvailable-consumed;
+  const dailyDraw=(b.mobs||[]).reduce((s,m)=>new Date(m.startDate).getTime()<=todayMs?s+m.head*m.dmPerHead:s,0);
+  const daysRemaining=dailyDraw>0?Math.max(0,Math.floor(remainingDM/dailyDraw)):null;
+  const finishDate=daysRemaining!==null?new Date(todayMs+daysRemaining*86400000).toISOString().slice(0,10):null;
+  return{remainingDM:Math.round(remainingDM),dailyDraw:Math.round(dailyDraw),daysRemaining,finishDate,calibDate,calibCover,totalAvailable:Math.round(totalAvailable)};
+}
+
+function fmtPDate(iso){
+  if(!iso)return'—';
+  const d=new Date(iso+'T00:00:00');
+  return d.toLocaleDateString('en-NZ',{day:'numeric',month:'short'});
+}
+
+function fmtDM(kg){
+  if(kg==null)return'—';
+  return kg>=10000?(kg/1000).toFixed(1)+'t':(kg>=1000?(kg/1000).toFixed(2)+'t':Math.round(kg).toLocaleString()+' kg');
+}
+
+function renderPastureBlocks(){
+  const container=document.getElementById("pasture-blocks-container");
+  if(!container)return;
+  let html='';
+  for(const{key,label}of PASTURE_BLOCK_DEFS){
+    const b=pastureBlocks[key];
+    const c=calcPastureBlock(b);
+    const mobs=b.mobs||[];
+    const updates=(b.coverUpdates||[]).slice().sort((a,z)=>z.date.localeCompare(a.date));
+    const todayStr=TODAY.toISOString().slice(0,10);
+    const remColor=c.remainingDM<0?'#FCA5A5':'white';
+    html+=`<div class="pasture-block">
+      <div class="pasture-block-header">
+        <div>
+          <div class="pasture-block-title">${label}</div>
+          <div class="pasture-block-sub">${b.area} ha &middot; ${b.openingCover} kg DM/ha opening &middot; ${b.wastage}% wastage</div>
+        </div>
+        <button onclick="openPastureSettings('${key}')" style="background:rgba(255,255,255,.15);border:none;color:var(--cream);border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer">Settings</button>
+      </div>
+      <div class="pasture-summary-bar">
+        <div class="pasture-summary-item"><div class="pasture-summary-val" style="color:${remColor}">${fmtDM(c.remainingDM)}</div><div class="pasture-summary-lbl">DM Remaining</div></div>
+        <div class="pasture-summary-item"><div class="pasture-summary-val">${c.dailyDraw>0?fmtDM(c.dailyDraw):'—'}</div><div class="pasture-summary-lbl">Daily Draw</div></div>
+        <div class="pasture-summary-item"><div class="pasture-summary-val">${c.daysRemaining!==null?c.daysRemaining+'d':'—'}</div><div class="pasture-summary-lbl">Days Left</div></div>
+        <div class="pasture-summary-item"><div class="pasture-summary-val" style="font-size:13px">${c.finishDate?fmtPDate(c.finishDate):'—'}</div><div class="pasture-summary-lbl">Est. Finish</div></div>
+      </div>
+      <div style="padding:10px 14px 6px;display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)">Cover readings</div>
+        <button onclick="openPastureUpdateModal('${key}',null)" style="background:var(--fog);border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:700;color:var(--bark);cursor:pointer">+ Add reading</button>
+      </div>
+      ${updates.length===0
+        ?`<div style="padding:4px 14px 12px;font-size:12px;color:var(--muted)">No readings yet — using opening cover of ${b.openingCover} kg DM/ha from ${fmtPDate(b.startDate)}</div>`
+        :updates.map((u,i)=>`<div class="pasture-update-row">
+            <div style="flex:1"><span style="font-weight:700">${fmtPDate(u.date)}</span><span style="margin-left:8px">${u.cover} kg DM/ha</span>${u.note?`<span style="margin-left:6px;color:var(--muted)">${u.note}</span>`:''}</div>
+            <button onclick="openPastureUpdateModal('${key}',${i})" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:4px 8px">Edit</button>
+          </div>`).join('')
+      }
+      <div style="padding:10px 14px 6px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--fog)">
+        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)">Mobs on pasture</div>
+        <button onclick="openPastureMobModal('${key}',null)" style="background:var(--fog);border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:700;color:var(--bark);cursor:pointer">+ Add mob</button>
+      </div>
+      ${mobs.length===0
+        ?`<div style="padding:4px 14px 12px;font-size:12px;color:var(--muted)">No mobs added</div>`
+        :mobs.map(mob=>{
+            const active=new Date(mob.startDate).getTime()<=TODAY.getTime();
+            return`<div class="pasture-mob-row">
+              <div class="pasture-mob-info">
+                <div class="pasture-mob-name">${mob.name}</div>
+                <div class="pasture-mob-sub">${mob.head} hd &middot; ${mob.dmPerHead} kg DM/hd/day &middot; from ${fmtPDate(mob.startDate)}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                <div style="font-size:14px;font-weight:800;color:${active?'var(--grass)':'var(--muted)'}">${fmtDM(mob.head*mob.dmPerHead)}/day</div>
+                <div style="font-size:10px;color:var(--muted)">${active?'active':'upcoming'}</div>
+              </div>
+              <button onclick="openPastureMobModal('${key}','${mob.id}')" style="background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:4px 8px;margin-left:4px">✏</button>
+            </div>`;
+          }).join('')
+      }
+      <div style="height:4px"></div>
+    </div>`;
+  }
+  container.innerHTML=html;
+}
+
+function openPastureSettings(key){
+  editingPastureKey=key;
+  const b=pastureBlocks[key];
+  const def=PASTURE_BLOCK_DEFS.find(d=>d.key===key);
+  document.getElementById("pbs-title").textContent=(def?def.label:key)+" — Settings";
+  document.getElementById("pbs-area").value=b.area;
+  document.getElementById("pbs-opening").value=b.openingCover;
+  document.getElementById("pbs-residual").value=b.residual;
+  document.getElementById("pbs-wastage").value=b.wastage;
+  document.getElementById("pbs-start").value=b.startDate;
+  const gr=b.growthRates||{};
+  document.getElementById("pbs-may").value=gr.May||0;
+  document.getElementById("pbs-jun").value=gr.June||0;
+  document.getElementById("pbs-jul").value=gr.July||0;
+  document.getElementById("pbs-aug").value=gr.August||0;
+  document.getElementById("pbs-sep").value=gr.September||0;
+  document.getElementById("pasture-settings-modal").classList.add("open");
+}
+
+function savePastureSettings(){
+  const b=pastureBlocks[editingPastureKey];
+  b.area=parseFloat(document.getElementById("pbs-area").value)||b.area;
+  b.openingCover=parseFloat(document.getElementById("pbs-opening").value)||b.openingCover;
+  b.residual=parseFloat(document.getElementById("pbs-residual").value)||b.residual;
+  b.wastage=parseFloat(document.getElementById("pbs-wastage").value)||b.wastage;
+  b.startDate=document.getElementById("pbs-start").value||b.startDate;
+  b.growthRates={
+    May:parseFloat(document.getElementById("pbs-may").value)||0,
+    June:parseFloat(document.getElementById("pbs-jun").value)||0,
+    July:parseFloat(document.getElementById("pbs-jul").value)||0,
+    August:parseFloat(document.getElementById("pbs-aug").value)||0,
+    September:parseFloat(document.getElementById("pbs-sep").value)||0,
+  };
+  saveAll();
+  closeModal("pasture-settings-modal");
+  renderPastureBlocks();
+  toast("✓ Settings saved");
+}
+
+function openPastureMobModal(key,mobId){
+  editingPastureKey=key;
+  editingPastureMobId=mobId;
+  const def=PASTURE_BLOCK_DEFS.find(d=>d.key===key);
+  document.getElementById("pmm-title").textContent=mobId?"Edit mob":"Add mob — "+(def?def.label:key);
+  document.getElementById("pmm-delete-btn").style.display=mobId?"inline-flex":"none";
+  if(mobId){
+    const mob=(pastureBlocks[key].mobs||[]).find(m=>m.id===mobId);
+    if(!mob)return;
+    document.getElementById("pmm-name").value=mob.name;
+    document.getElementById("pmm-head").value=mob.head;
+    document.getElementById("pmm-dm").value=mob.dmPerHead;
+    document.getElementById("pmm-start").value=mob.startDate;
+  }else{
+    document.getElementById("pmm-name").value="";
+    document.getElementById("pmm-head").value="";
+    document.getElementById("pmm-dm").value="";
+    document.getElementById("pmm-start").value=TODAY.toISOString().slice(0,10);
+  }
+  document.getElementById("pasture-mob-modal").classList.add("open");
+}
+
+function savePastureMob(){
+  const name=document.getElementById("pmm-name").value.trim();
+  const head=parseFloat(document.getElementById("pmm-head").value)||0;
+  const dmPerHead=parseFloat(document.getElementById("pmm-dm").value)||0;
+  const startDate=document.getElementById("pmm-start").value;
+  if(!name||!head||!startDate){toast("Please fill in all fields");return;}
+  const b=pastureBlocks[editingPastureKey];
+  if(!b.mobs)b.mobs=[];
+  if(editingPastureMobId){
+    const idx=b.mobs.findIndex(m=>m.id===editingPastureMobId);
+    if(idx>=0)b.mobs[idx]={...b.mobs[idx],name,head,dmPerHead,startDate};
+  }else{
+    b.mobs.push({id:"pm_"+Date.now(),name,head,dmPerHead,startDate});
+  }
+  saveAll();
+  closeModal("pasture-mob-modal");
+  renderPastureBlocks();
+}
+
+function deletePastureMob(){
+  if(!confirm("Remove this mob?"))return;
+  const b=pastureBlocks[editingPastureKey];
+  b.mobs=(b.mobs||[]).filter(m=>m.id!==editingPastureMobId);
+  saveAll();
+  closeModal("pasture-mob-modal");
+  renderPastureBlocks();
+}
+
+function openPastureUpdateModal(key,idx){
+  editingPastureKey=key;
+  editingPastureUpdateIdx=idx;
+  const def=PASTURE_BLOCK_DEFS.find(d=>d.key===key);
+  document.getElementById("pum-title").textContent=idx!==null?"Edit cover reading":"Add cover reading — "+(def?def.label:key);
+  document.getElementById("pum-delete-btn").style.display=idx!==null?"inline-flex":"none";
+  const updates=(pastureBlocks[key].coverUpdates||[]).slice().sort((a,z)=>z.date.localeCompare(a.date));
+  if(idx!==null&&updates[idx]){
+    document.getElementById("pum-date").value=updates[idx].date;
+    document.getElementById("pum-cover").value=updates[idx].cover;
+    document.getElementById("pum-note").value=updates[idx].note||"";
+  }else{
+    document.getElementById("pum-date").value=TODAY.toISOString().slice(0,10);
+    document.getElementById("pum-cover").value="";
+    document.getElementById("pum-note").value="";
+  }
+  document.getElementById("pasture-update-modal").classList.add("open");
+}
+
+function savePastureUpdate(){
+  const date=document.getElementById("pum-date").value;
+  const cover=parseFloat(document.getElementById("pum-cover").value);
+  const note=document.getElementById("pum-note").value.trim();
+  if(!date||isNaN(cover)){toast("Please enter a date and cover reading");return;}
+  const b=pastureBlocks[editingPastureKey];
+  if(!b.coverUpdates)b.coverUpdates=[];
+  const updates=b.coverUpdates.sort((a,z)=>z.date.localeCompare(a.date));
+  if(editingPastureUpdateIdx!==null&&updates[editingPastureUpdateIdx]){
+    updates[editingPastureUpdateIdx]={date,cover,note};
+  }else{
+    b.coverUpdates.push({date,cover,note});
+  }
+  saveAll();
+  closeModal("pasture-update-modal");
+  renderPastureBlocks();
+}
+
+function deletePastureUpdate(){
+  if(!confirm("Remove this cover reading?"))return;
+  const b=pastureBlocks[editingPastureKey];
+  const updates=(b.coverUpdates||[]).slice().sort((a,z)=>z.date.localeCompare(a.date));
+  updates.splice(editingPastureUpdateIdx,1);
+  b.coverUpdates=updates;
+  saveAll();
+  closeModal("pasture-update-modal");
+  renderPastureBlocks();
+}
 </script>
 
 <!-- BREAK CONFIRM MODAL -->
@@ -4786,5 +5092,86 @@ function finaliseAgenda(){
   </div>
 </div>
 
+<!-- PASTURE SETTINGS MODAL -->
+<div class="modal-overlay" id="pasture-settings-modal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title" id="pbs-title">Block Settings</div>
+      <button class="modal-close" onclick="closeModal('pasture-settings-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="field"><label>Area (ha)</label><input type="number" id="pbs-area" step="1" min="0"></div>
+        <div class="field"><label>Opening cover (kg DM/ha)</label><input type="number" id="pbs-opening" step="10" min="0"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Residual (kg DM/ha)</label><input type="number" id="pbs-residual" step="10" min="0"></div>
+        <div class="field"><label>Wastage (%)</label><input type="number" id="pbs-wastage" step="1" min="0" max="50"></div>
+      </div>
+      <div class="field"><label>Season start date</label><input type="date" id="pbs-start"><div class="field-hint">Season always ends 15 Sep. Enter date first cover is measured.</div></div>
+      <div class="sec" style="margin-top:10px">Growth rates (kg DM/ha/day)</div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:14px">
+        <div><div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px">May</div><input class="barn-inp" type="number" id="pbs-may" step="1" min="0"></div>
+        <div><div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px">Jun</div><input class="barn-inp" type="number" id="pbs-jun" step="1" min="0"></div>
+        <div><div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px">Jul</div><input class="barn-inp" type="number" id="pbs-jul" step="1" min="0"></div>
+        <div><div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px">Aug</div><input class="barn-inp" type="number" id="pbs-aug" step="1" min="0"></div>
+        <div><div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px">Sep</div><input class="barn-inp" type="number" id="pbs-sep" step="1" min="0"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button class="btn btn-secondary" style="flex:1" onclick="closeModal('pasture-settings-modal')">Cancel</button>
+        <button class="btn btn-primary" style="flex:2" onclick="savePastureSettings()">Save</button>
+      </div>
+      <div style="height:8px"></div>
+    </div>
+  </div>
+</div>
+<!-- PASTURE MOB MODAL -->
+<div class="modal-overlay" id="pasture-mob-modal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title" id="pmm-title">Add mob</div>
+      <button class="modal-close" onclick="closeModal('pasture-mob-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>Mob name</label><input type="text" id="pmm-name" placeholder="e.g. MA Comms on Flats"></div>
+      <div class="field-row">
+        <div class="field"><label>Head count</label><input type="number" id="pmm-head" min="1" placeholder="e.g. 800"></div>
+        <div class="field"><label>kg DM / head / day</label><input type="number" id="pmm-dm" step="0.1" min="0" placeholder="e.g. 10.5"></div>
+      </div>
+      <div class="field"><label>Start date on pasture</label><input type="date" id="pmm-start"></div>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button id="pmm-delete-btn" class="btn btn-secondary" style="display:none;flex:0 0 auto;color:var(--danger)" onclick="deletePastureMob()">Delete</button>
+        <button class="btn btn-secondary" style="flex:1" onclick="closeModal('pasture-mob-modal')">Cancel</button>
+        <button class="btn btn-primary" style="flex:2" onclick="savePastureMob()">Save</button>
+      </div>
+      <div style="height:8px"></div>
+    </div>
+  </div>
+</div>
+<!-- PASTURE COVER UPDATE MODAL -->
+<div class="modal-overlay" id="pasture-update-modal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title" id="pum-title">Add cover reading</div>
+      <button class="modal-close" onclick="closeModal('pasture-update-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="field"><label>Date measured</label><input type="date" id="pum-date"></div>
+        <div class="field"><label>Cover (kg DM/ha)</label><input type="number" id="pum-cover" step="10" min="0" placeholder="e.g. 1450"></div>
+      </div>
+      <div class="field"><label>Note (optional)</label><input type="text" id="pum-note" placeholder="e.g. post-grazing block 3"></div>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button id="pum-delete-btn" class="btn btn-secondary" style="display:none;flex:0 0 auto;color:var(--danger)" onclick="deletePastureUpdate()">Delete</button>
+        <button class="btn btn-secondary" style="flex:1" onclick="closeModal('pasture-update-modal')">Cancel</button>
+        <button class="btn btn-primary" style="flex:2" onclick="savePastureUpdate()">Save</button>
+      </div>
+      <div style="height:8px"></div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
