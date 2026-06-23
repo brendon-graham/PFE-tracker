@@ -1647,6 +1647,7 @@ function recalcBarn(){
       <div style="text-align:right;margin-left:12px;flex-shrink:0">
         <div style="font-weight:800;font-size:20px;color:var(--bark)">${fmt(perLoad,1)} kg</div>
         <div style="font-size:10px;color:var(--muted);text-transform:uppercase;margin-top:1px">per load</div>
+        ${add.isUrea?'':` <button onclick="barnCalc.additives.splice(${idx},1);saveAll();recalcBarn()" style="margin-top:6px;background:none;border:none;color:var(--danger);font-size:12px;cursor:pointer;padding:2px 0">✕ Remove</button>`}
       </div>
     </div>`;
   });
