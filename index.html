@@ -2284,11 +2284,17 @@ function renderOverview(){
       </div>
     </div>`;
   }
+  // Crop paddock pool
+  const totalCropDM=active.reduce((a,p)=>a+calcP(p).dmRem,0);
+  const cropDailyDM=totalCropDay; // already calculated above (kg DM/day from crop mobs)
+  const cropRequired=cropDailyDM*daysToTarget;
+  const cropDays=cropDailyDM>0?Math.floor(totalCropDM/cropDailyDM):999;
   const silDays=dailyOnSilage>0?Math.floor(totalSilageDM/dailyOnSilage):999;
   const wgDays=wgCalc.daysRemaining||0;
   const asDays=asCalc.daysRemaining||0;
-  const allOk=silageSurplus>=0&&(wgCalc.daysRemaining===null||wgDays>=daysToTarget)&&(asCalc.daysRemaining===null||asDays>=daysToTarget);
-  const anyDeficit=silageSurplus<0||(wgCalc.dailyDraw>0&&wgDays<daysToTarget)||(asCalc.dailyDraw>0&&asDays<daysToTarget);
+  const cropDeficit=cropDailyDM>0&&cropDays<daysToTarget;
+  const allOk=silageSurplus>=0&&!cropDeficit&&(wgCalc.daysRemaining===null||wgDays>=daysToTarget)&&(asCalc.daysRemaining===null||asDays>=daysToTarget);
+  const anyDeficit=silageSurplus<0||cropDeficit||(wgCalc.dailyDraw>0&&wgDays<daysToTarget)||(asCalc.dailyDraw>0&&asDays<daysToTarget);
   const overallCol=anyDeficit?"var(--danger)":allOk?"var(--ok)":"var(--warn)";
   const overallLabel=anyDeficit?"Deficit":"Surplus";
   const feedPosHtml=`<div class="card" style="margin-bottom:10px;border-top:4px solid ${overallCol}">
@@ -2298,6 +2304,7 @@ function renderOverview(){
         <div style="font-size:12px;font-weight:800;color:${overallCol};background:${anyDeficit?"#FEE2E2":allOk?"#DCFCE7":"#FEF3C7"};padding:3px 10px;border-radius:20px">${overallLabel} — ${daysToTarget}d to 15 Sep</div>
       </div>
       ${feedRow("Silage & supplements",totalSilageDM,silageRequired,dailyOnSilage,silDays)}
+      ${cropDailyDM>0?feedRow("Crop paddocks",totalCropDM,cropRequired,cropDailyDM,cropDays):""}
       ${wgCalc.dailyDraw>0?feedRow("Winter Graze",wgCalc.remainingDM,wgCalc.dailyDraw*daysToTarget,wgCalc.dailyDraw,wgDays):""}
       ${asCalc.dailyDraw>0?feedRow("Autumn Saved",asCalc.remainingDM,asCalc.dailyDraw*daysToTarget,asCalc.dailyDraw,asDays):""}
     </div>
