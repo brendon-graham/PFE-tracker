@@ -1333,6 +1333,7 @@ function saveToLocal(){
 function saveAll(){
   saveToLocal();
   if(SCRIPT_URL){
+    syncPending = true;
     clearTimeout(syncTimer);
     syncTimer = setTimeout(pushToSheet, SYNC_DEBOUNCE_MS);
     syncStatus="idle"; renderSyncBar();
@@ -1378,6 +1379,7 @@ async function pushToSheet(){
     syncStatus = navigator.onLine ? "error" : "offline";
   }
   pushInFlight = false;
+  syncPending = false;
   renderSyncBar();
 }
 function applyPullData(d){
@@ -3374,7 +3376,7 @@ loadAll().then(()=>{
 // ── Live sync poll — full-state pull every 30s while app is open ──
 async function liveSyncPoll(){
   if(!SCRIPT_URL) return;
-  if(syncStatus==='syncing' || pushInFlight) return;
+  if(syncStatus==='syncing' || pushInFlight || syncPending) return;
   if(document.hidden) return;
   try{
     const res = await fetch(SCRIPT_URL+'?action=pull&t='+Date.now(), {method:'GET',mode:'cors'});
