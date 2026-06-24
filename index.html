@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="10.14">
+<meta name="app-version" content="10.15">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.14</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.15</div>
     </div>
   </div>
   <div class="tabs">
@@ -2095,16 +2095,42 @@ function calcP(p){
   const cropDay=p.head*p.cropDM;
   const haDay=p.yield>0&&(1-w)>0?cropDay/(p.yield*(1-w)):0;
   const mDay=p.width>0?(haDay*10000)/p.width:0;
-  const daysRem=cropDay>0?dmRem/cropDay:9999;
-  const finish=new Date(TODAY.getTime()+daysRem*86400000);
-  const status=!p.active?"inactive":daysRem<14?"danger":daysRem<30?"warn":"ok";
   const totalSuppDM=(p.supps||[]).reduce((a,s)=>a+p.head*s.dmH,0);
-  // Planned finish date — surplus/deficit vs today
   let finishDays=null,targetDiff=null;
   if(p.finishDate){
     finishDays=Math.max(0,Math.ceil((new Date(p.finishDate)-TODAY)/86400000));
-    if(daysRem<9999) targetDiff=Math.round(daysRem-finishDays);
   }
+  // Step through consumption periods accounting for mob gaps and future mobs
+  let daysRem=9999;
+  if(dmRem>0){
+    const periods=[];
+    if(cropDay>0) periods.push({s:0,r:cropDay});
+    if(finishDays!=null) periods.push({s:finishDays,r:0});
+    (p.futureMobs||[]).forEach(m=>{
+      const sd=Math.max(0,Math.ceil((new Date(m.startDate)-TODAY)/86400000));
+      const rate=(m.head||0)*(m.dmPerHead||0);
+      if(rate>0) periods.push({s:sd,r:rate});
+    });
+    periods.sort((a,b)=>a.s-b.s);
+    const deduped=[];
+    for(const pe of periods){
+      if(deduped.length&&deduped[deduped.length-1].s===pe.s) deduped[deduped.length-1]=pe;
+      else deduped.push(pe);
+    }
+    deduped.push({s:99999,r:0});
+    let rem=dmRem;
+    for(let i=0;i<deduped.length-1;i++){
+      const{s,r}=deduped[i];
+      const span=deduped[i+1].s-s;
+      if(r<=0) continue;
+      const consumed=r*span;
+      if(rem<=consumed){daysRem=s+rem/r;break;}
+      rem-=consumed;
+    }
+  }
+  const finish=new Date(TODAY.getTime()+daysRem*86400000);
+  const status=!p.active?"inactive":daysRem<14?"danger":daysRem<30?"warn":"ok";
+  if(finishDays!=null&&daysRem<9999) targetDiff=Math.round(daysRem-finishDays);
   return{remHa,dmRem,cropDay,haDay,mDay,daysRem,finish,status,totalSuppDM,finishDays,targetDiff,finishDate:p.finishDate||null};
 }
 // ══════════════════════════════════════════════════════════
