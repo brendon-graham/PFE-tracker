@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="10.10">
+<meta name="app-version" content="10.11">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v10.10";
+  const APP_VERSION = "pfe-v10.11";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.10</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.11</div>
     </div>
   </div>
   <div class="tabs">
@@ -2162,6 +2162,7 @@ function calcSilageProjection(sil){
   const barnDailyTotal=barnCalc.head*(barnCalc.lw*barnCalc.dmPct/100);
   const freqFactor=f=>f==='daily'?1:f==='2d'?0.5:f==='mwf'?3/7:1;
   let balance=sil.current;
+  let hadAnyDraw=false;
   const today=new Date(TODAY);today.setHours(0,0,0,0);
   for(let d=0;d<150;d++){
     const day=new Date(today.getTime()+d*86400000);
@@ -2191,10 +2192,11 @@ function calcSilageProjection(sil){
       if(!e.startDate||!e.finishDate)return;
       if(day>=new Date(e.startDate)&&day<new Date(e.finishDate))draw+=e.head*e.dmPerHead*myFrac;
     });
+    if(draw>0)hadAnyDraw=true;
     balance-=draw;
     if(balance<=0)return d+1;
   }
-  return 999; // not depleted within 150 days
+  return hadAnyDraw?151:999; // 151 = active draws but no depletion; 999 = no draws configured
 }
 function renderOverview(){
   const dangers=paddocks.filter(p=>calcP(p).status==="danger");
@@ -2209,7 +2211,7 @@ function renderOverview(){
   const silageProjections={};
   silages.forEach(s=>{silageProjections[s.id]=calcSilageProjection(s);});
   // Supplement depletion alerts (< 14 days)
-  const lowSupps=silages.filter(s=>silageProjections[s.id]<999&&silageProjections[s.id]<14);
+  const lowSupps=silages.filter(s=>silageProjections[s.id]<151&&silageProjections[s.id]<14);
   let fh="";
   if(avgCropDays!==null)fh+=`<div class="card" style="margin-bottom:8px;border-left:4px solid ${cropDayCol}"><div class="card-body" style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Crop days remaining</div><div style="font-size:28px;font-weight:900;color:${cropDayCol};letter-spacing:-1px">${avgCropDays}</div></div><div style="text-align:right"><div style="font-size:11px;color:var(--muted)">${fmt(totalDmRem/1000,0)}t DM left</div><div style="font-size:11px;color:var(--muted)">${fmt(totalCropDay,0)} kg DM/day</div></div></div></div>`;
   if(lowSupps.length)fh+=`<div class="alert alert-danger">⚠ Low supplement: ${lowSupps.map(s=>`${s.name} (${Math.round(s.current/s.draw)}d)`).join(", ")}</div>`;
@@ -2248,11 +2250,12 @@ function renderOverview(){
   let sh="";
   silages.forEach(s=>{
     const proj=silageProjections[s.id];
-    const daysR=proj<999?proj:(s.draw>0?Math.round(s.current/s.draw):999);
-    const daysRIsProjected=proj<999;
+    const daysR=proj<=150?proj:(s.draw>0?Math.round(s.current/s.draw):null);
+    const daysRIsProjected=proj<=151;
+    const alertDays=proj<=150?proj:(proj===151?999:daysR);
     const pct=s.opening>0?Math.min(100,(s.current/s.opening)*100):100;
     const drawn=s.opening-s.current;
-    const fc=daysR<14?"fill-danger":daysR<30?"fill-warn":"fill-sky";
+    const fc=alertDays!==null&&alertDays<14?"fill-danger":alertDays!==null&&alertDays<30?"fill-warn":"fill-sky";
     const isBaleage=s.id==="baleage";
     const balesRem=isBaleage&&s.dmPerBale>0?Math.round(s.current/s.dmPerBale):null;
     const balesDrawn=isBaleage&&s.dmPerBale>0?Math.round(drawn/s.dmPerBale):null;
@@ -2277,9 +2280,11 @@ function renderOverview(){
             :`<div class="stat-box"><div class="stat-label">Opening</div><div class="stat-val">${fmt(s.opening/1000,0)}t</div><div class="stat-sub">kg DM</div></div>
                <div class="stat-box"><div class="stat-label">Drawn</div><div class="stat-val">${fmt(drawn/1000,1)}t</div><div class="stat-sub">since opening</div></div>
                <div class="stat-box"><div class="stat-label">Daily draw</div><div class="stat-val">${fmt(s.draw)}</div><div class="stat-sub">kg DM/day</div></div>`}
-          <div class="stat-box" style="${daysR<14?"background:#FEE2E2":daysR<30?"background:#FEF3C7":""}">
+          <div class="stat-box" style="${alertDays!==null&&alertDays<14?"background:#FEE2E2":alertDays!==null&&alertDays<30?"background:#FEF3C7":""}">
             <div class="stat-label">Days remaining</div>
-            <div class="stat-val" style="${daysR<14?"color:var(--danger)":daysR<30?"color:var(--warn)":""}">${daysR>300?"—":daysR}</div>
+            <div class="stat-val" style="${alertDays!==null&&alertDays<14?"color:var(--danger)":alertDays!==null&&alertDays<30?"color:var(--warn)":""}">
+              ${proj===151?"150+":daysR!==null?daysR:"—"}
+            </div>
             <div class="stat-sub">${daysRIsProjected?"projected":"stored rate"}</div>
           </div>
         </div>
