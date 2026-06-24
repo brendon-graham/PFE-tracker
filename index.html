@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="10.6">
+<meta name="app-version" content="10.7">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v10.6";
+  const APP_VERSION = "pfe-v10.7";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.6</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.7</div>
     </div>
   </div>
   <div class="tabs">
@@ -1175,9 +1175,9 @@ const CROP_COL={"Fodder Beet":{dot:"#9333EA",tag:"tag-fb"},"Swedes":{dot:"#2563E
 const TODAY=new Date(); TODAY.setHours(0,0,0,0); // real current date — midnight local time
 const DOW_NAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const DOW_FULL=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-const ALL_SUPP_TYPES=["Bulk Silage","Lucerne Silage","Baleage","Silage/Urea/DCP","Beet","PKE","Barley","Peas","Other"];
+const ALL_SUPP_TYPES=["Bulk Silage","Lucerne Silage","Baleage","Silage/Urea/DCP","Lifting Beet","PKE","Barley","Peas","Other"];
 const FREQ_LABELS={"daily":"Daily","mwf":"Mon·Wed·Fri","mf":"Mon–Fri","2d":"Every 2nd day"};
-const SUPP_DM_PCT={Baleage:38,Beet:24.79,PKE:88,"Bulk Silage":35,"Lucerne Silage":35,"Silage/Urea/DCP":35,Barley:86,Peas:85,Other:35};
+const SUPP_DM_PCT={Baleage:38,"Lifting Beet":24.79,PKE:88,"Bulk Silage":35,"Lucerne Silage":35,"Silage/Urea/DCP":35,Barley:86,Peas:85,Other:35};
 // ──────────────────────────────────────────────────────────
 // BUILT-IN BREAK FREQUENCY SCENARIOS
 // Each scenario defines a multiplier for each day of week (0=Sun..6=Sat)
@@ -2238,7 +2238,9 @@ function renderOverview(){
   document.getElementById("ov-crop-summary").innerHTML=ch;
   let sh="";
   silages.forEach(s=>{
-    const daysR=silageProjections[s.id];
+    const proj=silageProjections[s.id];
+    const daysR=proj<999?proj:(s.draw>0?Math.round(s.current/s.draw):999);
+    const daysRIsProjected=proj<999;
     const pct=s.opening>0?Math.min(100,(s.current/s.opening)*100):100;
     const drawn=s.opening-s.current;
     const fc=daysR<14?"fill-danger":daysR<30?"fill-warn":"fill-sky";
@@ -2269,7 +2271,7 @@ function renderOverview(){
           <div class="stat-box" style="${daysR<14?"background:#FEE2E2":daysR<30?"background:#FEF3C7":""}">
             <div class="stat-label">Days remaining</div>
             <div class="stat-val" style="${daysR<14?"color:var(--danger)":daysR<30?"color:var(--warn)":""}">${daysR>300?"—":daysR}</div>
-            <div class="stat-sub">projected</div>
+            <div class="stat-sub">${daysRIsProjected?"projected":"stored rate"}</div>
           </div>
         </div>
       </div>
@@ -2644,7 +2646,7 @@ function renderFeedOut(){
 }
 // Map supplement type to silage inventory id
 function getSilageForSuppType(type){
-  const map={"Bulk Silage":"bulk","Silage/Urea/DCP":"bulk","Lucerne Silage":"lucmz","PKE":"pke","Peas":"peas","Beet":"lbeet","Baleage":"baleage"};
+  const map={"Bulk Silage":"bulk","Silage/Urea/DCP":"bulk","Lucerne Silage":"lucmz","PKE":"pke","Peas":"peas","Beet":"lbeet","Lifting Beet":"lbeet","Baleage":"baleage"};
   const sid=map[type];
   return sid?silages.find(s=>s.id===sid):null;
 }
