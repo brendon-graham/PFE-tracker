@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="10.12">
+<meta name="app-version" content="10.13">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.12</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.13</div>
     </div>
   </div>
   <div class="tabs">
@@ -1459,6 +1459,9 @@ function applyPullData(d){
   if(d.measureHistory)                                measureHistory   = d.measureHistory;
   if(d.barnSchedule){barnSchedule=d.barnSchedule;if(d.barnScheduleTs)barnScheduleTs=d.barnScheduleTs;}
   if(d.pastureBlocks) pastureBlocks=d.pastureBlocks;
+  // Sync fbeet balance from Woodings remaining crop DM
+  {const _w=paddocks.find(p=>p.id==='wood'),_f=silages.find(s=>s.id==='fbeet');
+  if(_w&&_f){_f.opening=Math.round(_w.ha*(_w.yield||20000));_f.current=Math.round(Math.max(0,(_w.ha-(_w.used||0))*(_w.yield||20000)));}}
 }
 async function pullFromSheet(){
   if(!SCRIPT_URL){ loadFromLocal(); return; }
@@ -1524,6 +1527,9 @@ function loadFromLocal(){
     silages.push({id:"fbeet",name:"Fodder Beet",color:"#EA580C",opening:0,current:0,draw:0,
       note:"Woodings beet carted to Pov Bay · King Country · Bottom 60",altDay:false,dmPct:24.79});
   }
+  // Sync fbeet balance from Woodings remaining crop DM — Woodings is the source of truth
+  {const _w=paddocks.find(p=>p.id==='wood'),_f=silages.find(s=>s.id==='fbeet');
+  if(_w&&_f){_f.opening=Math.round(_w.ha*(_w.yield||20000));_f.current=Math.round(Math.max(0,(_w.ha-(_w.used||0))*(_w.yield||20000)));}}
   const BARN_SIL_MAP={"lucerne silage":"lucmz","pasture silage":"bulk","lifting beet":"lbeet","maize silage":"lucmz"};
   barnCalc.feeds.forEach(f=>{f.silageId=BARN_SIL_MAP[(f.name||'').toLowerCase()]||null;});
   // Migration: targetDays → finishDate (v10.0)
@@ -2167,6 +2173,7 @@ function calcCurrentDraw(sil){
     (p.supps||[]).forEach(s=>{
       const mapped=getSilageForSuppType(s.type);
       if(!mapped||mapped.id!==sil.id)return;
+      if(s.endDate&&today>=new Date(s.endDate))return;
       draw+=p.head*s.dmH*freqFactor(s.freq);
     });
   });
@@ -2174,6 +2181,7 @@ function calcCurrentDraw(sil){
     (m.supps||[]).forEach(s=>{
       const mapped=getSilageForSuppType(s.type);
       if(!mapped||mapped.id!==sil.id)return;
+      if(s.endDate&&today>=new Date(s.endDate))return;
       draw+=m.head*s.dmH*freqFactor(s.freq);
     });
   });
@@ -2206,6 +2214,7 @@ function calcSilageProjection(sil){
       (p.supps||[]).forEach(s=>{
         const mapped=getSilageForSuppType(s.type);
         if(!mapped||mapped.id!==thisSilId)return;
+        if(s.endDate&&day>=new Date(s.endDate))return;
         draw+=p.head*s.dmH*freqFactor(s.freq);
       });
     });
@@ -2214,6 +2223,7 @@ function calcSilageProjection(sil){
       (m.supps||[]).forEach(s=>{
         const mapped=getSilageForSuppType(s.type);
         if(!mapped||mapped.id!==thisSilId)return;
+        if(s.endDate&&day>=new Date(s.endDate))return;
         draw+=m.head*s.dmH*freqFactor(s.freq);
       });
     });
@@ -2563,6 +2573,7 @@ function renderFeedOut(){
   let allItems=[];
   paddocks.filter(p=>p.active).forEach(p=>{
     (p.supps||[]).forEach((s,idx)=>{
+      if(s.endDate&&new Date(TODAY)>=new Date(s.endDate))return;
       const id=`${p.id}_${idx}`;
       const todayFeed=isBreakDay(s.freq);
       const mult=getTodayMultiplier(s.freq); // 0 = not today, 1+ = days of cover
@@ -2739,6 +2750,10 @@ function toggleCheck(id){
         sil.current=Math.max(0,parseFloat((sil.current-deduct).toFixed(1)));
         checks[dmKey]={silId:sil.id,dm:deduct};
         queueChange("silage",sil.id,sil);
+        if(sil.id==='fbeet'){
+          const _w=paddocks.find(p=>p.id==='wood');
+          if(_w&&(_w.yield||20000)>0){_w.used=parseFloat(Math.min(_w.ha,((_w.used||0)+deduct/(_w.yield||20000))).toFixed(4));queueChange("paddock",_w.id,_w);}
+        }
       }
     }
   } else {
@@ -2746,7 +2761,14 @@ function toggleCheck(id){
     const stored=checks[dmKey];
     if(stored){
       const sil=silages.find(s=>s.id===stored.silId);
-      if(sil){sil.current=Math.min(sil.opening,parseFloat((sil.current+stored.dm).toFixed(1)));queueChange("silage",sil.id,sil);}
+      if(sil){
+        sil.current=Math.min(sil.opening,parseFloat((sil.current+stored.dm).toFixed(1)));
+        queueChange("silage",sil.id,sil);
+        if(sil.id==='fbeet'){
+          const _w=paddocks.find(p=>p.id==='wood');
+          if(_w&&(_w.yield||20000)>0){_w.used=parseFloat(Math.max(0,((_w.used||0)-stored.dm/(_w.yield||20000))).toFixed(4));queueChange("paddock",_w.id,_w);}
+        }
+      }
       delete checks[dmKey];
     }
   }
@@ -3041,7 +3063,7 @@ function buildSuppRows(supps,containerId,rowArr){
   rowArr.length=0;
   // Default DM% by type if not stored
   const defaultDmPct={Baleage:38,Beet:24.79,PKE:88,"Bulk Silage":35,"Lucerne Silage":35,"Silage/Urea/DCP":35,Barley:86,Peas:85,Other:35};
-  supps.forEach(s=>rowArr.push({type:s.type,dmH:s.dmH,freq:s.freq||"daily",feeders:s.feeders||1,dmPct:s.dmPct!=null?s.dmPct:(defaultDmPct[s.type]||33)}));
+  supps.forEach(s=>rowArr.push({type:s.type,dmH:s.dmH,freq:s.freq||"daily",feeders:s.feeders||1,dmPct:s.dmPct!=null?s.dmPct:(defaultDmPct[s.type]||33),endDate:s.endDate||""}));
   renderSuppRows(containerId,rowArr);
 }
 function renderSuppRows(containerId,rowArr){
@@ -3060,6 +3082,8 @@ function renderSuppRows(containerId,rowArr){
           ${ALL_SUPP_TYPES.map(t=>`<option${t===s.type?" selected":""}>${t}</option>`).join("")}
         </select>
         ${isBaleage?`<div style="font-size:10px;color:var(--muted);margin-top:3px">kg DM/hd/day total</div>`:""}
+        <input type="date" value="${s.endDate||''}" oninput="${arrName}[${i}].endDate=this.value||''" style="margin-top:4px;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:11px;width:100%;color:var(--bark)">
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Stop date (opt)</div>
       </div>
       <div>
         <input type="number" value="${s.dmH}" placeholder="kg DM/hd" step="0.1" min="0"
@@ -3087,11 +3111,11 @@ function renderSuppRows(containerId,rowArr){
   }).join("");
 }
 function addSuppRow(){
-  modalSuppRows.push({type:"Bulk Silage",dmH:0.5,freq:"daily",dmPct:33});
+  modalSuppRows.push({type:"Bulk Silage",dmH:0.5,freq:"daily",dmPct:33,endDate:""});
   renderSuppRows("supp-editor-rows",modalSuppRows);previewCalc();
 }
 function addPmSuppRow(){
-  pmSuppRows.push({type:"Bulk Silage",dmH:0.5,freq:"daily",dmPct:33});
+  pmSuppRows.push({type:"Bulk Silage",dmH:0.5,freq:"daily",dmPct:33,endDate:""});
   renderSuppRows("pm-supp-rows",pmSuppRows);
 }
 function removeSuppRow(i,cid){
