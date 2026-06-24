@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="10.9">
+<meta name="app-version" content="10.10">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v10.9";
+  const APP_VERSION = "pfe-v10.10";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.9</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.10</div>
     </div>
   </div>
   <div class="tabs">
@@ -1439,7 +1439,11 @@ function applyPullData(d){
   if(d.paddocks    && d.paddocks.length)    paddocks    = d.paddocks;
   if(d.silages     && d.silages.length)     silages     = d.silages;
   if(d.pastureMobs && d.pastureMobs.length) pastureMobs = d.pastureMobs;
-  if(d.barnCalc)                             barnCalc    = d.barnCalc;
+  if(d.barnCalc){
+    barnCalc=d.barnCalc;
+    const _smap={"lucerne silage":"lucmz","pasture silage":"bulk","lifting beet":"lbeet","maize silage":"lucmz"};
+    (barnCalc.feeds||[]).forEach(f=>{f.silageId=_smap[(f.name||'').toLowerCase()]||null;});
+  }
   if(d.scenarios   && d.scenarios.length)   customScenarios = d.scenarios;
   if(d.dailyLogs   && d.dailyLogs.length)   dailyLogs   = d.dailyLogs;
   if(d.checks && d.checks.date === TODAY.toISOString().slice(0,10)){
