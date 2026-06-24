@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="10.13">
+<meta name="app-version" content="10.14">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.13</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.14</div>
     </div>
   </div>
   <div class="tabs">
@@ -1738,7 +1738,7 @@ function recalcBarn(){
   document.getElementById("bc-diet-summary").innerHTML=`
     <div class="diet-box highlight"><div class="diet-box-val">${fmt(dmHd,2)}</div><div class="diet-box-lbl">DM / head / day (kg)</div></div>
     <div class="diet-box highlight"><div class="diet-box-val">${fmt(totDM,0)}</div><div class="diet-box-lbl">Total mob DM / day</div></div>
-    <div class="diet-box"><div class="diet-box-val">${fmt(blendedCP,1)}%</div><div class="diet-box-lbl">Base CP (% DM)</div></div>
+    <div class="diet-box"><div class="diet-box-val">${fmt(cpWithUrea,1)}%</div><div class="diet-box-lbl">CP incl. urea (% DM)</div></div>
     <div class="diet-box"><div class="diet-box-val">${fmt(blendedME,2)}</div><div class="diet-box-lbl">Blended ME (MJ/kgDM)</div></div>
     <div class="diet-box"><div class="diet-box-val">${fmt(blendedNDF,1)}%</div><div class="diet-box-lbl">NDF (% DM)</div></div>
     <div class="diet-box"><div class="diet-box-val">${fmt(totalWetWithAdditives,0)}</div><div class="diet-box-lbl">Total wet kg / day</div></div>
