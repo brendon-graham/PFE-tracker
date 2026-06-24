@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="10.11">
+<meta name="app-version" content="10.12">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.11</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.12</div>
     </div>
   </div>
   <div class="tabs">
@@ -2148,6 +2148,38 @@ function switchTab(t){
 // Project how many days a silage will last, accounting for mob changes.
 // Barn future mobs draw from each silage in the same ratio as the current barn ration.
 // Paddock supplement draw stops when the crop finishes (finishDate).
+function calcCurrentDraw(sil){
+  const barnTotalPct=barnCalc.feeds.reduce((a,f)=>a+(f.pctDM||0),0)||100;
+  const barnSilFrac={};
+  barnCalc.feeds.forEach(f=>{
+    if(!f.silageId)return;
+    barnSilFrac[f.silageId]=(barnSilFrac[f.silageId]||0)+(f.pctDM||0)/barnTotalPct;
+  });
+  const myFrac=barnSilFrac[sil.id]||0;
+  const barnFinish=barnCalc.finishDate?new Date(barnCalc.finishDate):null;
+  const barnDailyTotal=barnCalc.head*(barnCalc.lw*barnCalc.dmPct/100);
+  const freqFactor=f=>f==='daily'?1:f==='2d'?0.5:f==='mwf'?3/7:1;
+  const today=new Date(TODAY);today.setHours(0,0,0,0);
+  let draw=0;
+  paddocks.filter(p=>p.active).forEach(p=>{
+    const finish=p.finishDate?new Date(p.finishDate):null;
+    if(finish&&today>=finish)return;
+    (p.supps||[]).forEach(s=>{
+      const mapped=getSilageForSuppType(s.type);
+      if(!mapped||mapped.id!==sil.id)return;
+      draw+=p.head*s.dmH*freqFactor(s.freq);
+    });
+  });
+  pastureMobs.forEach(m=>{
+    (m.supps||[]).forEach(s=>{
+      const mapped=getSilageForSuppType(s.type);
+      if(!mapped||mapped.id!==sil.id)return;
+      draw+=m.head*s.dmH*freqFactor(s.freq);
+    });
+  });
+  if(myFrac>0&&(!barnFinish||today<barnFinish))draw+=barnDailyTotal*myFrac;
+  return draw;
+}
 function calcSilageProjection(sil){
   // Barn silage fractions — proportion of total barn DM from each silage id
   const barnTotalPct=barnCalc.feeds.reduce((a,f)=>a+(f.pctDM||0),0)||100;
@@ -2209,12 +2241,13 @@ function renderOverview(){
   const cropDayCol=avgCropDays===null?"var(--muted)":avgCropDays<14?"var(--danger)":avgCropDays<30?"var(--warn)":"var(--ok)";
   // Pre-compute projected days remaining per silage (accounts for mob changes)
   const silageProjections={};
-  silages.forEach(s=>{silageProjections[s.id]=calcSilageProjection(s);});
+  const silageDraws={};
+  silages.forEach(s=>{silageProjections[s.id]=calcSilageProjection(s);silageDraws[s.id]=calcCurrentDraw(s);});
   // Supplement depletion alerts (< 14 days)
   const lowSupps=silages.filter(s=>silageProjections[s.id]<151&&silageProjections[s.id]<14);
   let fh="";
   if(avgCropDays!==null)fh+=`<div class="card" style="margin-bottom:8px;border-left:4px solid ${cropDayCol}"><div class="card-body" style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Crop days remaining</div><div style="font-size:28px;font-weight:900;color:${cropDayCol};letter-spacing:-1px">${avgCropDays}</div></div><div style="text-align:right"><div style="font-size:11px;color:var(--muted)">${fmt(totalDmRem/1000,0)}t DM left</div><div style="font-size:11px;color:var(--muted)">${fmt(totalCropDay,0)} kg DM/day</div></div></div></div>`;
-  if(lowSupps.length)fh+=`<div class="alert alert-danger">⚠ Low supplement: ${lowSupps.map(s=>`${s.name} (${Math.round(s.current/s.draw)}d)`).join(", ")}</div>`;
+  if(lowSupps.length)fh+=`<div class="alert alert-danger">⚠ Low supplement: ${lowSupps.map(s=>`${s.name} (${silageProjections[s.id]}d)`).join(", ")}</div>`;
   if(dangers.length)fh+=`<div class="alert alert-danger"><b>🔴 ${dangers.length} paddock${dangers.length>1?"s":""} under 14 days:</b> ${dangers.map(p=>p.name).join(", ")}</div>`;
   if(warns.length)  fh+=`<div class="alert alert-warn"><b>⚠ ${warns.length} paddock${warns.length>1?"s":""} under 30 days:</b> ${warns.map(p=>p.name).join(", ")}</div>`;
   document.getElementById("ov-flags").innerHTML=fh;
@@ -2250,7 +2283,7 @@ function renderOverview(){
   let sh="";
   silages.forEach(s=>{
     const proj=silageProjections[s.id];
-    const daysR=proj<=150?proj:(s.draw>0?Math.round(s.current/s.draw):null);
+    const daysR=proj<=150?proj:(silageDraws[s.id]>0?Math.round(s.current/silageDraws[s.id]):null);
     const daysRIsProjected=proj<=151;
     const alertDays=proj<=150?proj:(proj===151?999:daysR);
     const pct=s.opening>0?Math.min(100,(s.current/s.opening)*100):100;
@@ -2279,7 +2312,7 @@ function renderOverview(){
                <div class="stat-box"><div class="stat-label">Per bale</div><div class="stat-val">${fmt(s.dmPerBale||0,0)}</div><div class="stat-sub">kg DM</div></div>`
             :`<div class="stat-box"><div class="stat-label">Opening</div><div class="stat-val">${fmt(s.opening/1000,0)}t</div><div class="stat-sub">kg DM</div></div>
                <div class="stat-box"><div class="stat-label">Drawn</div><div class="stat-val">${fmt(drawn/1000,1)}t</div><div class="stat-sub">since opening</div></div>
-               <div class="stat-box"><div class="stat-label">Daily draw</div><div class="stat-val">${fmt(s.draw)}</div><div class="stat-sub">kg DM/day</div></div>`}
+               <div class="stat-box"><div class="stat-label">Daily draw</div><div class="stat-val">${silageDraws[s.id]>0?fmt(silageDraws[s.id]):"—"}</div><div class="stat-sub">kg DM/day</div></div>`}
           <div class="stat-box" style="${alertDays!==null&&alertDays<14?"background:#FEE2E2":alertDays!==null&&alertDays<30?"background:#FEF3C7":""}">
             <div class="stat-label">Days remaining</div>
             <div class="stat-val" style="${alertDays!==null&&alertDays<14?"color:var(--danger)":alertDays!==null&&alertDays<30?"color:var(--warn)":""}">
@@ -3275,7 +3308,7 @@ function openSilageModal(id){
       <div class="field"><label>Current inventory (kg DM)</label><input type="number" id="sil-current" value="${s.current}" step="100" min="0"></div>
       <div class="field"><label>Opening / total stock (kg DM)</label><input type="number" id="sil-opening" value="${s.opening}" step="100" min="0"><div class="field-hint">Used for the % remaining bar</div></div>
       <div class="field"><label>DM content (%)</label><input type="number" id="sil-dmpct" value="${s.dmPct||35}" step="0.5" min="1" max="100"><div class="field-hint">Used to calculate wet kg in Feed Out</div></div>
-      <div class="field"><label>Daily draw (kg DM/day)</label><input type="number" id="sil-draw" value="${s.draw}" step="100" min="0"><div class="field-hint">Used to calculate days remaining</div></div>`;
+`;
   }
   bodyHTML+=`
     <div style="display:flex;gap:8px;margin-top:12px">
@@ -3313,7 +3346,6 @@ function saveSilage(){
     s.current=parseFloat(document.getElementById("sil-current")?.value)||0;
     s.opening=parseFloat(document.getElementById("sil-opening")?.value)||s.opening;
     s.dmPct=parseFloat(document.getElementById("sil-dmpct")?.value)||s.dmPct;
-    s.draw=parseFloat(document.getElementById("sil-draw")?.value)||0;
   }
   queueChange("silage",id,s);
   saveAll();closeModal("silage-modal");renderOverview();renderFeedOut();toast("✓ Inventory updated");
@@ -5134,7 +5166,7 @@ function openPastureMobModal(key,mobId){
   document.getElementById("pasture-mob-modal").classList.add("open");
 }
 
-function savePastureMob(){
+function savePastureBlockMob(){
   const name=document.getElementById("pmm-name").value.trim();
   const head=parseFloat(document.getElementById("pmm-head").value)||0;
   const dmPerHead=parseFloat(document.getElementById("pmm-dm").value)||0;
@@ -5154,7 +5186,7 @@ function savePastureMob(){
   renderPastureBlocks();
 }
 
-function deletePastureMob(){
+function deletePastureBlockMob(){
   if(!confirm("Remove this mob?"))return;
   const b=pastureBlocks[editingPastureKey];
   b.mobs=(b.mobs||[]).filter(m=>m.id!==editingPastureMobId);
@@ -5327,9 +5359,9 @@ function deletePastureUpdate(){
       </div>
       <div class="field"><label>Start date on pasture</label><input type="date" id="pmm-start"></div>
       <div style="display:flex;gap:8px;margin-top:4px">
-        <button id="pmm-delete-btn" class="btn btn-secondary" style="display:none;flex:0 0 auto;color:var(--danger)" onclick="deletePastureMob()">Delete</button>
+        <button id="pmm-delete-btn" class="btn btn-secondary" style="display:none;flex:0 0 auto;color:var(--danger)" onclick="deletePastureBlockMob()">Delete</button>
         <button class="btn btn-secondary" style="flex:1" onclick="closeModal('pasture-mob-modal')">Cancel</button>
-        <button class="btn btn-primary" style="flex:2" onclick="savePastureMob()">Save</button>
+        <button class="btn btn-primary" style="flex:2" onclick="savePastureBlockMob()">Save</button>
       </div>
       <div style="height:8px"></div>
     </div>
