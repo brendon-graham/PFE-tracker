@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="12.1">
+<meta name="app-version" content="12.2">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.1</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.2</div>
     </div>
   </div>
   <div class="tabs">
@@ -5309,6 +5309,7 @@ function renderStockRec(){
           <span style="font-size:11px;color:var(--muted)">DM/hd</span>${numInput(sc.dmWinter,`setSubDM('${b.key}','${sc.key}',this.value)`,46)}
           <span style="font-size:11px;color:var(--muted)">= ${Math.round(scCur*sc.dmWinter*10)/10}kg/d</span>
           ${srAllocSelect(b.key,sc.key,sc.winterAllocation)}
+          <button onclick="removeStockSubclass('${b.key}','${sc.key}')" style="background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:0 2px">×</button>
         </div>`;
       });
       html+=`</div>`;
@@ -5322,6 +5323,21 @@ function renderStockRec(){
     `<div style="background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:10px 12px;font-size:12px;margin-bottom:10px"><strong>Whole farm winter total:</strong> ${Math.round(farmSu*10)/10} SU &middot; ${Math.round(farmDm).toLocaleString()} kg DM/day required. Cross-check against feed-budget-baseline.md's supply (crops + silage + pasture growth).</div>`;
 
   renderStockMovements();
+}
+function removeStockSubclass(baseKey,subKey){
+  const base=stockRec.baseClasses.find(b=>b.key===baseKey);
+  if(base.subclasses.length<=1){ toast('Can\'t delete the last subclass — add a replacement first'); return; }
+  const sub=base.subclasses.find(s=>s.key===subKey);
+  const cur=srSubCurrent(baseKey,subKey);
+  const msg=cur>0
+    ? `"${sub.label}" still has ${cur} head on it. Deleting it will lose that count from this class — are you sure?`
+    : `Delete "${sub.label}"?`;
+  if(!confirm(msg))return;
+  base.subclasses=base.subclasses.filter(s=>s.key!==subKey);
+  stockRec.movements=stockRec.movements.filter(m=>!(m.baseClass===baseKey&&m.subClass===subKey));
+  saveAll();
+  renderStockRec();
+  toast('✓ Subclass deleted');
 }
 function openAddSubclass(baseKey){
   editingStockMoveBaseKey=baseKey;
