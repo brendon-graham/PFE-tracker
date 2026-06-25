@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="10.15">
+<meta name="app-version" content="12.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v10.15</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -393,6 +393,8 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <button class="tab-btn"         onclick="switchTab('pasture')">🌿 Pasture</button>
     <button class="tab-btn"         onclick="switchTab('jobstodo')">🔧 Jobs</button>
     <button class="tab-btn"         onclick="switchTab('toolbox')">📝 Toolbox</button>
+    <button class="tab-btn"         onclick="switchTab('animalhealth')">🩺 Health</button>
+    <button class="tab-btn"         onclick="switchTab('stockrec')">🐑 Stock Rec</button>
     <button class="tab-btn"         onclick="switchTab('diary')">📓 Diary</button>
     <button class="tab-btn"         onclick="switchTab('history')">History</button>
   </div>
@@ -684,6 +686,34 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <div id="toolbox-minutes-editor"></div>
     <div class="sec" style="margin-top:16px">Past Minutes</div>
     <div id="toolbox-minutes-history"></div>
+    <div style="height:80px"></div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- ANIMAL HEALTH TAB -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div id="tab-animalhealth" class="tab-panel">
+    <div class="sec" style="margin-bottom:8px">Due This Month</div>
+    <div id="ah-current-month"></div>
+    <div class="sec" style="margin-top:18px;margin-bottom:8px">Coming Up Next Month</div>
+    <div id="ah-next-month"></div>
+    <div class="sec" style="margin-top:18px;margin-bottom:8px">Products to Order</div>
+    <div id="ah-products"></div>
+    <div style="height:80px"></div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- STOCK REC TAB -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div id="tab-stockrec" class="tab-panel">
+    <div id="sr-alloc-banner"></div>
+    <div id="sr-totals-banner"></div>
+    <div id="sr-groups"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:18px 0 8px">
+      <div class="sec" style="margin:0">Movement Log</div>
+      <button class="btn btn-sm btn-primary" onclick="openAddStockMovement()">+ Add Movement</button>
+    </div>
+    <div id="sr-movements-list"></div>
     <div style="height:80px"></div>
   </div>
 
@@ -1002,6 +1032,50 @@ body.outdoor .supp-qty div{font-size:16px!important}
     </div>
   </div>
 </div>
+<!-- ADD STOCK MOVEMENT MODAL -->
+<div class="modal-overlay" id="add-stockmove-modal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title">Add Stock Movement</div>
+      <button class="modal-close" onclick="closeModal('add-stockmove-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>Date</label><input type="date" id="srm-date"></div>
+      <div class="field">
+        <label>Class</label>
+        <select id="srm-baseclass" onchange="onStockMoveBaseChange()"></select>
+      </div>
+      <div class="field">
+        <label>Subclass</label>
+        <select id="srm-subclass"></select>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Type</label>
+          <select id="srm-type">
+            <option value="birth">Birth</option>
+            <option value="death">Death</option>
+            <option value="purchase">Purchase</option>
+            <option value="sale">Sale</option>
+            <option value="cull">Cull</option>
+            <option value="transfer_in">Transfer in</option>
+            <option value="transfer_out">Transfer out</option>
+            <option value="reclass_in">Reclass in</option>
+            <option value="reclass_out">Reclass out</option>
+          </select>
+        </div>
+        <div class="field"><label>Quantity (head)</label><input type="number" id="srm-qty" placeholder="e.g. 5" min="1"></div>
+      </div>
+      <div class="field"><label>Note</label><input type="text" id="srm-note" placeholder="Optional note…"></div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-secondary" style="flex:1" onclick="closeModal('add-stockmove-modal')">Cancel</button>
+        <button class="btn btn-primary" style="flex:2" onclick="saveStockMovement()">Add Movement</button>
+      </div>
+      <div style="height:8px"></div>
+    </div>
+  </div>
+</div>
 <!-- ADD WEEKLY JOB MODAL -->
 <div class="modal-overlay" id="add-weekly-job-modal">
   <div class="modal-sheet">
@@ -1312,6 +1386,9 @@ let pastureBlocks = {
 };
 let editingPastureKey = null, editingPastureMobId = null, editingPastureUpdateIdx = null;
 let cropFutureMobRows = [];
+let animalHealthOrders = {}; // key: "YYYY-MM__product" -> "need" | "ordered" | "onhand"
+let stockRec = { baseClasses: [], movements: [] };
+let editingStockMoveBaseKey = null;
 let outdoorMode = localStorage.getItem('pfe5_outdoor') === '1';
 if(outdoorMode) document.body.classList.add('outdoor');
 // ══════════════════════════════════════════════════════════
@@ -1379,6 +1456,8 @@ function saveToLocal(){
     localStorage.setItem("pfe5_barnschedule",JSON.stringify(barnSchedule));
     localStorage.setItem("pfe5_barnscheduleTs",String(barnScheduleTs));
     localStorage.setItem("pfe5_pastureblocks",JSON.stringify(pastureBlocks));
+    localStorage.setItem("pfe5_ahorders",    JSON.stringify(animalHealthOrders));
+    localStorage.setItem("pfe5_stockrec",    JSON.stringify(stockRec));
   }catch(e){}
 }
 function saveAll(){
@@ -1419,6 +1498,8 @@ async function pushToSheet(){
           barnSchedule,
           barnScheduleTs,
           pastureBlocks,
+          animalHealthOrders,
+          stockRec,
           lastModified: thisTs,
         }
       }),
@@ -1459,6 +1540,8 @@ function applyPullData(d){
   if(d.measureHistory)                                measureHistory   = d.measureHistory;
   if(d.barnSchedule){barnSchedule=d.barnSchedule;if(d.barnScheduleTs)barnScheduleTs=d.barnScheduleTs;}
   if(d.pastureBlocks) pastureBlocks=d.pastureBlocks;
+  if(d.animalHealthOrders) animalHealthOrders=d.animalHealthOrders;
+  if(d.stockRec && d.stockRec.baseClasses && d.stockRec.baseClasses.length) stockRec=d.stockRec;
   // Sync fbeet balance from Woodings remaining crop DM
   {const _w=paddocks.find(p=>p.id==='wood'),_f=silages.find(s=>s.id==='fbeet');
   if(_w&&_f){_f.opening=Math.round(_w.ha*(_w.yield||20000));_f.current=Math.round(Math.max(0,(_w.ha-(_w.used||0))*(_w.yield||20000)));}}
@@ -1515,6 +1598,8 @@ function loadFromLocal(){
     const bs=localStorage.getItem("pfe5_barnschedule");if(bs) barnSchedule=JSON.parse(bs);
     const bsts=localStorage.getItem("pfe5_barnscheduleTs");if(bsts) barnScheduleTs=Number(bsts);
     const pb=localStorage.getItem("pfe5_pastureblocks");if(pb) pastureBlocks=JSON.parse(pb);
+    const ah=localStorage.getItem("pfe5_ahorders");if(ah) animalHealthOrders=JSON.parse(ah);
+    const sr=localStorage.getItem("pfe5_stockrec");if(sr) stockRec=JSON.parse(sr);
   }catch(e){}
   // Migration: add dmPct to existing silage entries, add Baleage if missing, add silageId to barn feeds
   const SIL_DMPCT_DEFAULTS={bulk:35,lucmz:35,lbeet:24.79,pke:88,peas:85,baleage:38};
@@ -1557,7 +1642,7 @@ async function loadAll(){
   if(checksDate!==today){checks={};checksDate=today;}
   renderAll();
   renderWeeklyJobs(); renderBacklogJobs(); renderToolboxEditor(); renderToolboxHistory();
-  renderToolboxAgenda(); renderDiaryTab();
+  renderToolboxAgenda(); renderDiaryTab(); renderAnimalHealth();
   renderFlagStrip();
   if(SCRIPT_URL){
     await pullFromSheet();
@@ -1587,6 +1672,8 @@ function renderAll(){
   if(t==="history")   renderHistory();
   if(t==="diary")     renderDiaryTab();
   if(t==="toolbox")   {renderToolboxAgenda();}
+  if(t==="animalhealth") renderAnimalHealth();
+  if(t==="stockrec")  renderStockRec();
 }
 // Sync setup modal
 function openSyncModal(){
@@ -2118,7 +2205,7 @@ function calcP(p){
       else deduped.push(pe);
     }
     deduped.push({s:99999,r:0});
-    let rem=dmRem;
+    let rem=dmRem,lastConsumingEnd=0;
     for(let i=0;i<deduped.length-1;i++){
       const{s,r}=deduped[i];
       const span=deduped[i+1].s-s;
@@ -2126,7 +2213,10 @@ function calcP(p){
       const consumed=r*span;
       if(rem<=consumed){daysRem=s+rem/r;break;}
       rem-=consumed;
+      lastConsumingEnd=deduped[i+1].s;
     }
+    // If DM outlasts all consuming periods, daysRem = end of last consuming period
+    if(daysRem===9999&&lastConsumingEnd>0&&lastConsumingEnd<99999) daysRem=lastConsumingEnd;
   }
   const finish=new Date(TODAY.getTime()+daysRem*86400000);
   const status=!p.active?"inactive":daysRem<14?"danger":daysRem<30?"warn":"ok";
@@ -2153,7 +2243,7 @@ function closeModal(id){document.getElementById(id).classList.remove("open");}
 // TABS
 // ══════════════════════════════════════════════════════════
 let currentTab="overview";
-const TAB_NAMES=["overview","weeklyjobs","feedout","breaks","paddocks","barn","pasture","jobstodo","toolbox","diary","history"];
+const TAB_NAMES=["overview","weeklyjobs","feedout","breaks","paddocks","barn","pasture","jobstodo","toolbox","animalhealth","stockrec","diary","history"];
 function switchTab(t){
   document.querySelectorAll(".tab-panel").forEach(el=>{el.classList.remove("active");el.style.display="none";});
   document.querySelectorAll(".tab-btn").forEach((btn,i)=>{btn.classList.remove("active");if(TAB_NAMES[i]===t)btn.classList.add("active");});
@@ -2162,7 +2252,7 @@ function switchTab(t){
     if(t==="measure"){panel.style.display="flex";panel.classList.add("active");setTimeout(()=>{if(map)map.invalidateSize();},150);}
     else{panel.style.display="block";panel.classList.add("active");}
   }
-  document.getElementById("fab-add").style.display=(t==="measure"||t==="history"||t==="barn"||t==="pasture"||t==="diary")?"none":"flex";
+  document.getElementById("fab-add").style.display=(t==="measure"||t==="history"||t==="barn"||t==="pasture"||t==="diary"||t==="animalhealth"||t==="stockrec")?"none":"flex";
   currentTab=t;
   if(t==="overview")  renderOverview();
   if(t==="paddocks")  renderPaddocks();
@@ -2173,6 +2263,8 @@ function switchTab(t){
   if(t==="history")   renderHistory();
   if(t==="diary")     renderDiaryTab();
   if(t==="toolbox")   renderToolboxAgenda();
+  if(t==="animalhealth") renderAnimalHealth();
+  if(t==="stockrec")  renderStockRec();
 }
 // ══════════════════════════════════════════════════════════
 // OVERVIEW
@@ -3674,6 +3766,117 @@ const BACKLOG_CATS = ["Jobs To Do","Holes to Fill","Poplars Block","Weed Wipe","
 // Pasture block constants — must be before loadAll() call (temporal dead zone guard)
 const PASTURE_BLOCK_DEFS=[{key:"winterGraze",label:"Winter Graze"},{key:"autumnSaved",label:"Autumn Saved"}];
 const PASTURE_MONTH_NAMES=["","","","","May","June","July","August","September","","",""];
+// Animal Health Plan 2026–27 — Farmfirst (sheep) + VetEnt (deer/cattle/dogs)
+// Source: ai-brain/layer-1-context/animal-health-plan-2627.md
+const MONTH_NAMES_FULL=["","January","February","March","April","May","June","July","August","September","October","November","December"];
+const ANIMAL_HEALTH_PLAN=[
+  {m:1,items:[
+    {cls:"MA Ewes",action:"Weaning"},
+    {cls:"2 Tooths",action:"Weaning (unless didn't lamb as hoggets)"},
+    {cls:"Replacement ewe lambs/hoggets",action:"Weaning, shear, triple drench if needed, toxovax if mating as hoggets"},
+    {cls:"Lambs for finishing",action:"FEC and monitor — drench only if needed"},
+    {cls:"Rams",action:"Ram palpations, check feet"},
+    {cls:"Fawns",action:"Tagging + DNA, Multimin (1ml/50kg), 7-in-1 sensitiser"},
+    {cls:"Stags",action:"Regrowth all sale, cull & commercial stags: copper bullet (excl. culls). Monitor trophy stags. Velvet auction. Regrowth commercial mature stags: copper bullet. Sire stags regrowth: copper bullet + Selovin LA. Spikers regrowth: copper bullet + selenium. Join B11 spikers with B11 R1 hinds. Regrowth 3yo & 2yo commercial stags: copper bullet."},
+    {cls:"Cattle",action:"R2: remove bulls 5th–7th Jan"},
+    {cls:"Dogs",action:"Annual WOOF vax booster, flea treatment, Drontal. Droncit. Multi-wormer (Drontal/Milbemax)."},
+  ],products:["Toxovax","Multimin","7-in-1 sensitiser","Copper bullets","Selovin LA","Selenium","Droncit","Drontal/Milbemax (multi-wormer)","Flea treatment"]},
+  {m:2,items:[
+    {cls:"MA Ewes",action:"4–6 weeks post-weaning — udder score ewes, recommend Campy booster"},
+    {cls:"2 Tooths",action:"Early Feb — FEC, triple drench if needed, Toxo if mating for first time as 2ths, first Campy"},
+    {cls:"Replacement ewe lambs/hoggets",action:"Boost 5-in-1 vaccine in keepers, FEC + triple drench as needed, first Campyvax"},
+    {cls:"Lambs for finishing",action:"FEC and monitor — Selenium + B12 if needed"},
+    {cls:"Rams",action:"Trace elements — B12 plus Selenium"},
+    {cls:"MA Hinds",action:"Red R2 hinds: draft into mating mobs, injectable drench, Selovin LA (1ml/50kg). B11 R2 hinds: injectable drench, Selovin LA."},
+    {cls:"Stags",action:"Score & truck trophy stags. Trophy sire stags: cut hard antler + copper bullet. B11 R2 stags running with hinds: injectable drench."},
+    {cls:"Cattle",action:"MA cows: remove bulls 1st Feb"},
+    {cls:"Other",action:"Dip for lice and fly"},
+  ],products:["Campyvax","Toxovax","5-in-1 clostridial vaccine","Selenium","B12","Lice & fly dip","Injectable drench","Selovin LA","Copper bullet"]},
+  {m:3,items:[
+    {cls:"MA Ewes",action:"Mating — rams in with MA ewes"},
+    {cls:"2 Tooths",action:"Mating — rams in with 2ths. Early March — boost Campy."},
+    {cls:"Replacement ewe lambs/hoggets",action:"Boost campyvax"},
+    {cls:"Rams",action:"5-in-1 clostridial booster"},
+    {cls:"Weaners/R1",action:"Finish weaning Reds"},
+    {cls:"MA Hinds",action:"Draft hinds into mating mobs, join with stag by 10 March. Programming AI, recips & donor hinds."},
+    {cls:"Stags",action:"Finish trucking trophy stags. Set stock old stags on flats."},
+  ],products:["Campyvax","5-in-1 clostridial vaccine"]},
+  {m:4,items:[
+    {cls:"Rams",action:"25 Apr — rams in with MA ewes"},
+    {cls:"Other",action:"In future, if wintering ewes on brassicas, use Flexidine or Depodine"},
+    {cls:"Weaners/R1",action:"All weaners except B11: weaning weights, injectable drench, YersiniaVax booster, 7-in-1 booster"},
+    {cls:"MA Hinds",action:"AI hinds: join with backup stags"},
+    {cls:"Stags",action:"ET programming"},
+    {cls:"Cattle",action:"Weaning — truck out steers & non-replacement heifer calves. Replacement calves: oral drench, 20g copper bullet, Selovin LA, 7-in-1 sensitiser."},
+  ],products:["Injectable drench","YersiniaVax booster","7-in-1 booster","Oral drench","Copper bullet (20g)","Selovin LA"]},
+  {m:5,items:[
+    {cls:"Other",action:"Annual RVM script paperwork"},
+    {cls:"MA Hinds",action:"Pull out sire stags & box up hind mobs. Red MA & R2 hinds: iodine injection + copper bullet. B11 MA & R2 hinds: iodine injection + copper bullet. Scan recip hinds."},
+    {cls:"Stags",action:"Remove sire stags from hinds. Sire stags post-rut treat: drench, copper bullet, B12 ± selenium."},
+    {cls:"Cattle",action:"Calves 4–6w post weaning: injectable drench + 7-in-1 booster. Scan heifers. Scan MA cows — identify dates. R2 heifers: Selovin LA, 30g copper bullet, Lypor lice treatment. MA cows before Hill Block: Selovin LA, 30g copper bullet, Lypor lice treatment. MA cows: 7-in-1."},
+  ],products:["Iodine injection","Copper bullet","Drench","B12","Selenium","Injectable drench","7-in-1","Selovin LA","Lypor lice treatment"]},
+  {m:6,items:[
+    {cls:"Other",action:"Dip for lice out of shed after shearing"},
+    {cls:"Weaners/R1",action:"Onto crop — fodder beet"},
+    {cls:"MA Hinds",action:"Scan hinds (early–mid month)"},
+    {cls:"Stags",action:"Draft stags from sire mobs into commercial line"},
+    {cls:"Cattle",action:"Move breeding cows onto Hill Block for winter. Shift cattle onto Hill Block."},
+    {cls:"Dogs",action:"Droncit. Annual WOF (can do while on farm for scanning cows)."},
+  ],products:["Lice dip","Droncit"]},
+  {m:7,items:[
+    {cls:"Replacement ewe lambs/hoggets",action:"End July — 5-in-1 clostridial booster to line up with prelamb when older"},
+    {cls:"Weaners/R1",action:"Sample weigh weaners to monitor growth rates"},
+    {cls:"Stags",action:"Monitor stag condition in barn"},
+    {cls:"Cattle",action:"R2 heifers: 7-in-1. In-calf cows: put out Mag lick."},
+    {cls:"Dogs",action:"Multi-wormer (Drontal/Milbemax)"},
+  ],products:["5-in-1 clostridial vaccine","7-in-1","Mag lick","Drontal/Milbemax (multi-wormer)"]},
+  {m:8,items:[
+    {cls:"MA Ewes",action:"Prelamb treatment: 5-in-1 with selenium and B12 booster"},
+    {cls:"2 Tooths",action:"Prelamb treatment: 5-in-1 with selenium and B12 booster"},
+    {cls:"Other",action:"Animal health planning"},
+    {cls:"Weaners/R1",action:"Male R1s off crop onto grass. Comm. weaners: weights + Cervidae."},
+    {cls:"Stags",action:"Older stags out of barn/off crop into saved grass. Sale stags: blood test & check testicles, copper bullet, injectable drench, 7-in-1, B12. Button drop draft stags & pull out trophies."},
+    {cls:"Cattle",action:"R1 heifers: BVD sensitiser"},
+    {cls:"Dogs",action:"Droncit"},
+  ],products:["5-in-1 + selenium + B12 (prelamb)","Cervidae drench","Copper bullet","Injectable drench","7-in-1","B12","BVD sensitiser","Droncit"]},
+  {m:9,items:[
+    {cls:"MA Ewes",action:"Lambing"},
+    {cls:"2 Tooths",action:"Lambing"},
+    {cls:"Weaners/R1",action:"R1 hinds off crop onto grass. Studs 1st Sept weights + injectable drench. R1 B11 1st Sept weights + Cervidae drench. R1 Comm: weigh & draft for finishing, Cervidae (final)."},
+    {cls:"MA Hinds",action:"Hinds off crop or out of barn, draft into lines"},
+    {cls:"Stags",action:"Younger stags out of barn/off crop onto grass. Draft R2 stags into lines onto grass. Continue button drop draft."},
+    {cls:"Cattle",action:"Bulls: BVD booster (4–6 weeks pre-mating)"},
+    {cls:"Dogs",action:"Multi-wormer (Drontal/Milbemax)"},
+  ],products:["Injectable drench","Cervidae drench","BVD booster","Drontal/Milbemax (multi-wormer)"]},
+  {m:10,items:[
+    {cls:"MA Ewes",action:"Tailing"},
+    {cls:"2 Tooths",action:"Tailing"},
+    {cls:"Weaners/R1",action:"Maternal & B11 spikers: EMA and CARLA testing. R1 studs: weights, ± injectable drench (final)."},
+    {cls:"MA Hinds",action:"All hinds: 7-in-1. R2 hinds: ± drench. Set stock hinds for fawning by 20 Oct."},
+    {cls:"Stags",action:"Start of velveting"},
+    {cls:"Dogs",action:"Droncit"},
+  ],products:["EMA/CARLA testing","Injectable drench","7-in-1","Drench","Droncit"]},
+  {m:11,items:[
+    {cls:"MA Ewes",action:"Tailing"},
+    {cls:"2 Tooths",action:"FEC, triple drench if needed, 5-in-1 booster"},
+    {cls:"Replacement ewe lambs/hoggets",action:"FEC, triple drench if needed, 5-in-1 booster"},
+    {cls:"Weaners/R1",action:"R1 hinds: pull out potential donor hinds & send remainder to Lincoln Hills"},
+    {cls:"Fawns",action:"Fawning begins"},
+    {cls:"Stags",action:"Busiest 3 weeks of velveting — normally 25 Oct–15 Nov"},
+    {cls:"Cattle",action:"Heifers: bull in 15 Nov (1:80). Calf marking — weights, heifer calves Mob A visual tags, Mob B & steer calves EID tag only. Finish calf marking."},
+    {cls:"Dogs",action:"Droncit"},
+  ],products:["Triple drench","5-in-1 booster","EID tags","Visual tags","Droncit"]},
+  {m:12,items:[
+    {cls:"MA Ewes",action:"Dip for fly"},
+    {cls:"2 Tooths",action:"Dip for fly"},
+    {cls:"Replacement ewe lambs/hoggets",action:"FEC, triple drench if needed"},
+    {cls:"Other",action:"Health planning half-year catch-up"},
+    {cls:"Fawns / MA Hinds",action:"Fawning"},
+    {cls:"Stags",action:"Regrowth Forrester auction stags (sold mid Dec): copper bullet. Finish 1st cut 3yo. Draft sale stags into lines: velvet auction, private sale Forresters, auction Forresters."},
+    {cls:"Cattle",action:"MA cows: bull in 1 Dec (1:50)"},
+    {cls:"Dogs",action:"Multi-wormer (Drontal/Milbemax)"},
+  ],products:["Fly dip","Triple drench","Copper bullet","Drontal/Milbemax (multi-wormer)"]},
+];
 // ══════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════
@@ -4067,6 +4270,12 @@ const DEFAULT_BACKLOG = [
 // Only apply hardcoded defaults if no saved data exists — prevents overwriting live data after loadFromLocal() has already run
 if (!localStorage.getItem('pfe5_backlog')) {
   backlogJobs = JSON.parse(JSON.stringify(DEFAULT_BACKLOG));
+}
+// Stock Rec — opening balances as at 25 Jun 2026 from company-brief.md, SU from DeerNZ/Beef+LambNZ, DM/d (winter) from feed-budget-baseline.md.
+// Same one-time-seed pattern as DEFAULT_BACKLOG above — only ever applied to a genuinely empty install, never overwrites live data on reload.
+const DEFAULT_STOCKREC = { baseClasses: [{"key":"ma_stags_red","label":"MA Stags","species":"deer","line":"red","sex":"stag","ageTier":"MA","companyBriefTotal":1900,"suPerHead":3.5,"suFlag":"DeerNZ MA NZ Red splits into Velvet Stags (3.2) or Breeding Stags (3.5) - used Breeding Stags since these aren't specifically velvet sires, confirm.","subclasses":[{"key":"barn","label":"Barn","opening":1222,"winterAllocation":"Barn","dmWinter":4.7,"dmFlag":null},{"key":"waikato","label":"Waikato","opening":574,"winterAllocation":"Waikato","dmWinter":4.5,"dmFlag":"No separate winter rate exists for a \"Waikato\" sub-group in the source budget - used the general MA Old Stags rate (4.5), confirm."},{"key":"pasture","label":"Pasture (remainder)","opening":104,"winterAllocation":"Autumn Saved (pasture block)","dmWinter":4.5,"dmFlag":"Same as Waikato - general MA Old Stags rate used, confirm."}]},{"key":"r3_stags_red","label":"R3 Stags","species":"deer","line":"red","sex":"stag","ageTier":"R3","companyBriefTotal":685,"suPerHead":3.0,"suFlag":null,"subclasses":[{"key":"elites","label":"Elites","opening":323,"winterAllocation":null,"dmWinter":4.2,"dmFlag":"Mapped to the source's \"R3 Stags (elite)\" line - confirm Elites = elite."},{"key":"commercials","label":"Commercials","opening":364,"winterAllocation":null,"dmWinter":4.5,"dmFlag":"Mapped to the source's \"R3 Stags (mainline)\" line - confirm Commercials = mainline."}]},{"key":"r2_stags_red","label":"R2 Stags","species":"deer","line":"red","sex":"stag","ageTier":"R2","companyBriefTotal":790,"suPerHead":2.3,"suFlag":null,"subclasses":[{"key":"forresters","label":"Forresters","opening":240,"winterAllocation":null,"dmWinter":2.7,"dmFlag":null},{"key":"velvet","label":"Velvet","opening":360,"winterAllocation":null,"dmWinter":2.5,"dmFlag":"Source only has one combined \"Velvet and Trophy\" winter rate (2.5) - used for both Velvet and Trophy below. The source also separately lists \"R2 Stags (studs): 3.6\" which doesn't map cleanly to Forresters/Velvet/Trophy - confirm these three subclasses cover everything, or if a 4th \"studs\" group is missing."},{"key":"trophy","label":"Trophy","opening":198,"winterAllocation":null,"dmWinter":2.5,"dmFlag":"Same combined \"Velvet and Trophy\" source rate as Velvet - see note there."}]},{"key":"ma_hinds_red","label":"MA Hinds (recips & studs)","species":"deer","line":"red","sex":"hind","ageTier":"MA","companyBriefTotal":260,"suPerHead":2.2,"suFlag":null,"subclasses":[{"key":"general","label":"General - not yet split","opening":260,"winterAllocation":null,"dmWinter":2.6,"dmFlag":null}]},{"key":"commercial_hinds_red","label":"Commercial Hinds","species":"deer","line":"red","sex":"hind","ageTier":null,"companyBriefTotal":870,"suPerHead":2.2,"suFlag":"Assumed mature (MA Hinds 2.2) since no age tier specified - confirm if these are a younger mix.","subclasses":[{"key":"general","label":"General - not yet split","opening":870,"winterAllocation":null,"dmWinter":2.6,"dmFlag":"Source notes this rate was only budgeted for 30 days of winter (pasture-only allocation) - confirm if a full-winter rate is different."}]},{"key":"recips_studs_red","label":"Recips and Studs","species":"deer","line":"red","sex":"hind","ageTier":null,"companyBriefTotal":355,"suPerHead":2.2,"suFlag":"Assumed mature (MA Hinds 2.2) since no age tier specified - confirm.","subclasses":[{"key":"general","label":"General - not yet split","opening":355,"winterAllocation":null,"dmWinter":2.7,"dmFlag":null}]},{"key":"milking_hinds_red","label":"Milking Hinds","species":"deer","line":"red","sex":"hind","ageTier":null,"companyBriefTotal":50,"suPerHead":2.2,"suFlag":"DeerNZ table has no separate lactating-hind row - used MA Hinds 2.2, likely understates actual lactation demand. Confirm or adjust up.","subclasses":[{"key":"general","label":"General - not yet split","opening":50,"winterAllocation":null,"dmWinter":3.5,"dmFlag":null}]},{"key":"commercial_weaners_red","label":"Commercial Weaners","species":"deer","line":"red","sex":null,"ageTier":"weaner","companyBriefTotal":860,"suPerHead":1.6,"suFlag":"DeerNZ only splits R1 by sex (Hind 1.5 / Stag 1.7), not a combined weaner figure - used the average (1.6) since these aren't sexed yet. Split by sex once known for a more accurate figure.","subclasses":[{"key":"general","label":"General - not yet split","opening":860,"winterAllocation":null,"dmWinter":2.9,"dmFlag":null}]},{"key":"r2_stags_b11","label":"R2 Stags","species":"deer","line":"b11","sex":"stag","ageTier":"R2","companyBriefTotal":78,"suPerHead":2.5,"suFlag":null,"subclasses":[{"key":"general","label":"General - not yet split","opening":78,"winterAllocation":null,"dmWinter":4.0,"dmFlag":null}]},{"key":"r3_ma_stags_b11","label":"R3 + MA Stags","species":"deer","line":"b11","sex":"stag","ageTier":"R3+MA","companyBriefTotal":64,"suPerHead":3.2,"suFlag":"This bucket combines R3 and MA, but DeerNZ rates differ a lot by tier (R3 Stag 3.2, MA Velvet 3.5, MA Breeding 3.8) - used R3 Stag rate as the lower bound. Splitting this bucket by tier (as flagged elsewhere) would let you use a more accurate blended rate.","subclasses":[{"key":"general","label":"General - not yet split (currently combines R3 and MA, confirm if this needs separating)","opening":64,"winterAllocation":null,"dmWinter":4.5,"dmFlag":"No winter-specific B11 R3/MA rate exists in feed-budget-baseline.md - used feed-budget.md's generic \"B11 Stags (R2/R3/MA): 4.5\" benchmark instead. This is the one DM figure NOT from the winter-specific source."}]},{"key":"hinds_r3plus_b11","label":"Hinds R3+","species":"deer","line":"b11","sex":"hind","ageTier":"R3+","companyBriefTotal":220,"suPerHead":2.2,"suFlag":"\"R3+\" spans DeerNZ's R3 Hind (2.2) and MA Hinds (2.4) hybrid rows - used the lower R3 figure, confirm if mostly MA.","subclasses":[{"key":"general","label":"General - not yet split","opening":220,"winterAllocation":null,"dmWinter":4.7,"dmFlag":"This winter-budget figure (4.7) is much higher than feed-budget.md's generic B11 Hinds benchmark (2.8) - real discrepancy between the two source documents, not a typo on my part. Confirm which is right before relying on it."}]},{"key":"r2_hinds_b11","label":"R2 Hinds","species":"deer","line":"b11","sex":"hind","ageTier":"R2","companyBriefTotal":81,"suPerHead":1.9,"suFlag":null,"subclasses":[{"key":"general","label":"General - not yet split","opening":81,"winterAllocation":null,"dmWinter":4.4,"dmFlag":"Same discrepancy as Hinds R3+ B11 - winter budget figure (4.4) vs feed-budget.md generic (2.8). Confirm."}]},{"key":"weaners_b11","label":"Weaners","species":"deer","line":"b11","sex":null,"ageTier":"weaner","companyBriefTotal":225,"suPerHead":1.7,"suFlag":"Same averaging approach as Commercial Weaners (Red) - DeerNZ hybrid R1 Hind 1.6 / Stag 1.8 averaged since not yet sexed.","subclasses":[{"key":"general","label":"General - not yet split","opening":225,"winterAllocation":null,"dmWinter":2.5,"dmFlag":null}]},{"key":"r1_heifers_cattle","label":"R1 Heifers","species":"cattle","line":null,"sex":"female","ageTier":"R1","companyBriefTotal":75,"suPerHead":3.5,"suFlag":null,"subclasses":[{"key":"general","label":"General - not yet split","opening":75,"winterAllocation":null,"dmWinter":5.0,"dmFlag":"Winter budget source only lists 15 head for this class (vs company-brief's 75) - separate head-count discrepancy, not one I'm resolving here. The 5.0 kg DM/day rate itself should still apply per head."}]},{"key":"r1_finishing_cattle","label":"R1 Finishing Cattle","species":"cattle","line":null,"sex":null,"ageTier":"R1","companyBriefTotal":180,"suPerHead":4.5,"suFlag":"Mapped to Beef+LambNZ \"Steers Weaner\"/\"Bulls Weaner\" (both 4.5) - confirm if this mob is a different sex/stage mix.","subclasses":[{"key":"general","label":"General - not yet split","opening":180,"winterAllocation":null,"dmWinter":6.0,"dmFlag":"Winter budget source lists 0 head for this class currently - separate head-count discrepancy, not resolved here. The 6.0 kg DM/day rate should still apply per head when populated."}]},{"key":"calving_ma_cows_cattle","label":"Calving MA Cows","species":"cattle","line":null,"sex":"female","ageTier":"MA","companyBriefTotal":285,"suPerHead":5.5,"suFlag":null,"subclasses":[{"key":"general","label":"General - not yet split","opening":285,"winterAllocation":null,"dmWinter":8.0,"dmFlag":"This is the WINTER (dry, pre-calving) rate from feed-budget-baseline.md - deliberately NOT feed-budget.md's generic 14.0 figure, which is the post-calving lactation peak and would badly overstate winter demand."}]},{"key":"calving_heifers_cattle","label":"Calving Heifers","species":"cattle","line":null,"sex":"female","ageTier":"R2","companyBriefTotal":75,"suPerHead":4.4,"suFlag":"Mapped to Beef+LambNZ \"Heifers 1.5 Yr\" (4.4) since these are pre-first-calving R2s.","subclasses":[{"key":"general","label":"General - not yet split","opening":75,"winterAllocation":null,"dmWinter":5.5,"dmFlag":"Winter (pre-calving) rate from feed-budget-baseline.md, not feed-budget.md's generic 11.0 lactation figure - same reasoning as Calving MA Cows."}]}], movements: [] };
+if (!localStorage.getItem('pfe5_stockrec')) {
+  stockRec = JSON.parse(JSON.stringify(DEFAULT_STOCKREC));
 }
 // weeklyCompletedArchive already declared above
 // toolboxMinutesList already declared above
@@ -4916,6 +5125,219 @@ function deleteDiaryEntry(id){
   renderDiaryTab();
 }
 
+function ahMonthKey(year,month){ return year+"-"+String(month).padStart(2,"0"); }
+function renderAhMonthCard(elId, monthNum, year){
+  const el=document.getElementById(elId);
+  if(!el) return;
+  const data=ANIMAL_HEALTH_PLAN.find(x=>x.m===monthNum);
+  if(!data){ el.innerHTML=""; return; }
+  let html=`<div style="background:var(--bark);color:var(--cream);padding:8px 12px;border-radius:var(--rs) var(--rs) 0 0;font-weight:700;font-size:13px">${MONTH_NAMES_FULL[monthNum]}</div>
+    <div style="background:white;border-radius:0 0 var(--rs) var(--rs);border:1px solid var(--border);border-top:none;overflow:hidden">`;
+  data.items.forEach(it=>{
+    html+=`<div style="padding:10px 12px;border-bottom:1px solid var(--fog)">
+      <div style="font-size:11px;font-weight:700;color:var(--grass);margin-bottom:2px">${it.cls}</div>
+      <div style="font-size:13px">${it.action}</div>
+    </div>`;
+  });
+  html+=`</div>`;
+  el.innerHTML=html;
+}
+function cycleAhProduct(monthKey,product){
+  const key=monthKey+"__"+product;
+  const order=["need","ordered","onhand"];
+  const cur=animalHealthOrders[key];
+  const idx=order.indexOf(cur);
+  const next= idx===-1 ? "need" : (idx===order.length-1 ? null : order[idx+1]);
+  if(next===null) delete animalHealthOrders[key]; else animalHealthOrders[key]=next;
+  saveAll();
+  renderAnimalHealth();
+}
+function renderAnimalHealth(){
+  const curMonth=TODAY.getMonth()+1, curYear=TODAY.getFullYear();
+  const nextMonth=curMonth===12?1:curMonth+1, nextYear=curMonth===12?curYear+1:curYear;
+  renderAhMonthCard("ah-current-month",curMonth,curYear);
+  renderAhMonthCard("ah-next-month",nextMonth,nextYear);
+  const curKey=ahMonthKey(curYear,curMonth), nextKey=ahMonthKey(nextYear,nextMonth);
+  const curData=ANIMAL_HEALTH_PLAN.find(x=>x.m===curMonth);
+  const nextData=ANIMAL_HEALTH_PLAN.find(x=>x.m===nextMonth);
+  const seen=new Set();
+  const rows=[];
+  (curData?.products||[]).forEach(p=>{ if(!seen.has(p)){seen.add(p);rows.push({product:p,key:curKey});} });
+  (nextData?.products||[]).forEach(p=>{ if(!seen.has(p)){seen.add(p);rows.push({product:p,key:nextKey});} });
+  const statusCfg={need:{label:"Need to order",bg:"#FEE2E2",fg:"#B91C1C"},ordered:{label:"Ordered",bg:"#FEF3C7",fg:"#92400E"},onhand:{label:"On hand",bg:"#DCFCE7",fg:"#166534"}};
+  const el=document.getElementById("ah-products");
+  if(el){
+    if(rows.length===0){
+      el.innerHTML=`<div style="padding:10px 12px;color:var(--muted);font-size:13px;font-style:italic">No products listed for this period</div>`;
+    } else {
+      el.innerHTML=`<div style="background:white;border-radius:var(--rs);border:1px solid var(--border);overflow:hidden">`+
+        rows.map(r=>{
+          const status=animalHealthOrders[r.key+"__"+r.product];
+          const cfg=status?statusCfg[status]:null;
+          return `<div onclick="cycleAhProduct('${r.key}','${r.product.replace(/'/g,"\\'")}')" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--fog);cursor:pointer;gap:10px">
+            <div style="font-size:13px;flex:1">${r.product}</div>
+            <span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;background:${cfg?cfg.bg:'var(--fog)'};color:${cfg?cfg.fg:'var(--muted)'}">${cfg?cfg.label:"Tap to flag"}</span>
+          </div>`;
+        }).join("")+`</div>`;
+    }
+  }
+}
+// ══════════════════════════════════════════════════════════
+// STOCK REC — rolling stock reconciliation
+// ══════════════════════════════════════════════════════════
+const SR_IN_TYPES = new Set(["birth","purchase","transfer_in","reclass_in"]);
+const SR_GROUPS = [
+  { key:"red", label:"Deer - Red", match:b=>b.species==='deer'&&b.line==='red' },
+  { key:"b11", label:"Deer - B11", match:b=>b.species==='deer'&&b.line==='b11' },
+  { key:"cattle", label:"Cattle", match:b=>b.species==='cattle' },
+];
+function getPaddockOptions(){
+  return ["Barn", ...PASTURE_BLOCK_DEFS.map(b=>b.label+" (pasture block)"), ...paddocks.map(p=>p.name)];
+}
+function srSubCurrent(baseKey,subKey){
+  const base=stockRec.baseClasses.find(b=>b.key===baseKey);
+  const sub=base.subclasses.find(s=>s.key===subKey);
+  const delta=stockRec.movements.filter(m=>m.baseClass===baseKey&&m.subClass===subKey).reduce((s,m)=>s+m.qty,0);
+  return sub.opening+delta;
+}
+function srBaseOpening(baseKey){
+  return stockRec.baseClasses.find(b=>b.key===baseKey).subclasses.reduce((s,sc)=>s+sc.opening,0);
+}
+function srBaseCurrent(baseKey){
+  const base=stockRec.baseClasses.find(b=>b.key===baseKey);
+  return base.subclasses.reduce((s,sc)=>s+srSubCurrent(baseKey,sc.key),0);
+}
+function srBaseDmTotal(baseKey){
+  const base=stockRec.baseClasses.find(b=>b.key===baseKey);
+  return base.subclasses.reduce((s,sc)=>s+srSubCurrent(baseKey,sc.key)*sc.dmWinter,0);
+}
+function setStockAllocation(baseKey,subKey,val){
+  const base=stockRec.baseClasses.find(b=>b.key===baseKey);
+  const sub=base.subclasses.find(s=>s.key===subKey);
+  sub.winterAllocation=val||null;
+  saveAll();
+  renderStockRec();
+  toast("✓ Winter allocation updated");
+}
+function srAllocSelect(baseKey,subKey,current){
+  const opts=['',...getPaddockOptions()];
+  const isUnset=!current;
+  const optionsHtml=opts.map(o=>`<option value="${o}" ${o===(current||'')?'selected':''}>${o===''?'— not yet allocated —':o}</option>`).join('');
+  return `<select class="sr-alloc-select" style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid ${isUnset?'var(--warn)':'var(--border)'};background:${isUnset?'#FFF4E0':'var(--card)'};color:${isUnset?'#7A4A00':'var(--fg)'}" onchange="setStockAllocation('${baseKey}','${subKey}',this.value)">${optionsHtml}</select>`;
+}
+function renderStockRec(){
+  const bannerEl=document.getElementById('sr-alloc-banner');
+  let missing=0,total=0;
+  stockRec.baseClasses.forEach(b=>b.subclasses.forEach(sc=>{total++;if(!sc.winterAllocation)missing++;}));
+  bannerEl.innerHTML = missing===0 ? '' : `<div class="alert-info alert" style="margin-bottom:10px;font-size:12px"><strong>${missing} of ${total}</strong> groups have no winter paddock/crop block allocation yet — pick one from the dropdown below so nothing gets missed over winter.</div>`;
+
+  const groupsEl=document.getElementById('sr-groups');
+  let html='', farmSu=0, farmDm=0;
+  SR_GROUPS.forEach(g=>{
+    const bases=stockRec.baseClasses.filter(g.match);
+    if(bases.length===0)return;
+    let gHead=0,gSu=0,gDm=0;
+    html+=`<div class="sec" style="margin-top:14px">${g.label}</div>`;
+    html+=`<div style="background:white;border-radius:var(--rs);border:1px solid var(--border);overflow:hidden;margin-bottom:8px">`;
+    bases.forEach(b=>{
+      const opening=srBaseOpening(b.key), current=srBaseCurrent(b.key), delta=current-opening;
+      const suTotal=Math.round(current*b.suPerHead*10)/10;
+      const dmTotal=Math.round(srBaseDmTotal(b.key)*10)/10;
+      gHead+=current; gSu+=suTotal; gDm+=dmTotal;
+      const mismatch=b.companyBriefTotal!=null && opening!==b.companyBriefTotal;
+      html+=`<div style="padding:9px 12px;border-bottom:1px solid var(--fog);${mismatch?'background:#FCE8E6':''}">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;font-weight:700;font-size:13px">
+          <span>${b.label}${b.ageTier?` (${b.ageTier})`:''}</span>
+          <span>${current} hd <span style="font-weight:400;color:var(--muted)">(${delta>0?'+':''}${delta})</span></span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">SU/hd ${b.suPerHead} → ${suTotal} SU &middot; DM ${dmTotal} kg/day</div>`;
+      if(mismatch){
+        html+=`<div style="font-size:11px;color:#7A1F1F;font-style:italic;margin-top:4px">Subclasses sum to ${opening}, company-brief.md lists ${b.companyBriefTotal} — flagged, confirm which is right.</div>`;
+      }
+      if(b.suFlag){ html+=`<div style="font-size:11px;color:#7A4A00;font-style:italic;margin-top:4px">SU note: ${b.suFlag}</div>`; }
+      if(b.subclasses.length>1 || b.subclasses[0].key!=='general'){
+        b.subclasses.forEach(sc=>{
+          const scCur=srSubCurrent(b.key,sc.key), scDelta=scCur-sc.opening;
+          const scDm=Math.round(scCur*sc.dmWinter*10)/10;
+          html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0 6px 14px;gap:8px">
+            <div style="font-size:12px;color:var(--muted);flex:1">${sc.label} — ${scCur} hd (${scDelta>0?'+':''}${scDelta}) &middot; ${scDm} kg DM/d</div>
+            ${srAllocSelect(b.key,sc.key,sc.winterAllocation)}
+          </div>`;
+          if(sc.dmFlag){ html+=`<div style="font-size:10px;color:#7A4A00;font-style:italic;padding-left:14px;margin-bottom:4px">DM note: ${sc.dmFlag}</div>`; }
+        });
+      } else if(b.subclasses[0].dmFlag){
+        html+=`<div style="font-size:11px;color:#7A4A00;font-style:italic;margin-top:4px">DM note: ${b.subclasses[0].dmFlag}</div>`;
+      }
+      html+=`</div>`;
+    });
+    html+=`</div>`;
+    farmSu+=gSu; farmDm+=gDm;
+  });
+  groupsEl.innerHTML=html;
+
+  document.getElementById('sr-totals-banner').innerHTML =
+    `<div style="background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:10px 12px;font-size:12px;margin-bottom:10px"><strong>Whole farm winter total:</strong> ${Math.round(farmSu*10)/10} SU &middot; ${Math.round(farmDm).toLocaleString()} kg DM/day required. Cross-check against feed-budget-baseline.md's supply (crops + silage + pasture growth).</div>`;
+
+  renderStockMovements();
+}
+function renderStockMovements(){
+  const el=document.getElementById('sr-movements-list');
+  if(stockRec.movements.length===0){
+    el.innerHTML=`<div style="padding:10px 12px;color:var(--muted);font-size:13px;font-style:italic">No movements logged yet</div>`;
+    return;
+  }
+  const html=[...stockRec.movements].sort((a,b)=>b.date.localeCompare(a.date)).map(m=>{
+    const base=stockRec.baseClasses.find(b=>b.key===m.baseClass);
+    const sub=base?base.subclasses.find(s=>s.key===m.subClass):null;
+    const dir=SR_IN_TYPES.has(m.type);
+    return `<div style="display:flex;align-items:center;padding:8px 12px;border-bottom:1px solid var(--fog);gap:8px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px">${base?base.label:m.baseClass}${sub?' — '+sub.label:''}</div>
+        <div style="font-size:11px;color:var(--muted)">${m.date} &middot; ${m.note||''}</div>
+      </div>
+      <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:${dir?'#E8F5E9':'#FCE8E6'};color:${dir?'#256029':'#7A1F1F'}">${m.type}</span>
+      <span style="font-weight:700;font-size:13px;min-width:30px;text-align:right">${m.qty>0?'+':''}${m.qty}</span>
+      <button onclick="removeStockMovement('${m.id}')" style="background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer">×</button>
+    </div>`;
+  }).join('');
+  el.innerHTML=`<div style="background:white;border-radius:var(--rs);border:1px solid var(--border);overflow:hidden">${html}</div>`;
+}
+function openAddStockMovement(){
+  document.getElementById('srm-date').value=TODAY.toISOString().slice(0,10);
+  const baseSel=document.getElementById('srm-baseclass');
+  baseSel.innerHTML=stockRec.baseClasses.map(b=>`<option value="${b.key}">${b.label}${b.ageTier?` (${b.ageTier})`:''} — ${b.species==='deer'?(b.line==='b11'?'B11':'Red'):'Cattle'}</option>`).join('');
+  onStockMoveBaseChange();
+  document.getElementById('srm-qty').value='';
+  document.getElementById('srm-note').value='';
+  document.getElementById('add-stockmove-modal').classList.add('open');
+}
+function onStockMoveBaseChange(){
+  const baseKey=document.getElementById('srm-baseclass').value;
+  const base=stockRec.baseClasses.find(b=>b.key===baseKey);
+  const subSel=document.getElementById('srm-subclass');
+  subSel.innerHTML=base.subclasses.map(sc=>`<option value="${sc.key}">${sc.label}</option>`).join('');
+}
+function saveStockMovement(){
+  const date=document.getElementById('srm-date').value;
+  const baseClass=document.getElementById('srm-baseclass').value;
+  const subClass=document.getElementById('srm-subclass').value;
+  const type=document.getElementById('srm-type').value;
+  let qty=Number(document.getElementById('srm-qty').value)||0;
+  const note=document.getElementById('srm-note').value.trim();
+  if(!date||!qty){ toast('Enter a date and quantity'); return; }
+  qty = SR_IN_TYPES.has(type) ? Math.abs(qty) : -Math.abs(qty);
+  stockRec.movements.push({id:"sm"+Date.now(),date,baseClass,subClass,type,qty,note});
+  saveAll();
+  closeModal('add-stockmove-modal');
+  renderStockRec();
+  toast('✓ Movement logged');
+}
+function removeStockMovement(id){
+  if(!confirm('Remove this movement?'))return;
+  stockRec.movements=stockRec.movements.filter(m=>m.id!==id);
+  saveAll();
+  renderStockRec();
+}
 function renderDiaryTab(){
   const lbl=document.getElementById("diary-user-label");
   if(lbl) lbl.textContent=syncUserName;
