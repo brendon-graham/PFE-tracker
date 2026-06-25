@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="12.0">
+<meta name="app-version" content="12.1">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.1</div>
     </div>
   </div>
   <div class="tabs">
@@ -1071,6 +1071,32 @@ body.outdoor .supp-qty div{font-size:16px!important}
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="btn btn-secondary" style="flex:1" onclick="closeModal('add-stockmove-modal')">Cancel</button>
         <button class="btn btn-primary" style="flex:2" onclick="saveStockMovement()">Add Movement</button>
+      </div>
+      <div style="height:8px"></div>
+    </div>
+  </div>
+</div>
+<!-- ADD SUBCLASS MODAL -->
+<div class="modal-overlay" id="add-subclass-modal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title">Add Subclass</div>
+      <button class="modal-close" onclick="closeModal('add-subclass-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>Name</label><input type="text" id="srs-label" placeholder="e.g. Hill Block"></div>
+      <div class="field-row">
+        <div class="field"><label>Head count</label><input type="number" id="srs-opening" min="0" placeholder="0"></div>
+        <div class="field"><label>DM/head/day (kg)</label><input type="number" step="0.1" id="srs-dm" placeholder="e.g. 4.5"></div>
+      </div>
+      <div class="field">
+        <label>Winter allocation (required)</label>
+        <select id="srs-alloc"></select>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-secondary" style="flex:1" onclick="closeModal('add-subclass-modal')">Cancel</button>
+        <button class="btn btn-primary" style="flex:2" onclick="saveSubclass()">Add Subclass</button>
       </div>
       <div style="height:8px"></div>
     </div>
@@ -5219,11 +5245,32 @@ function setStockAllocation(baseKey,subKey,val){
   renderStockRec();
   toast("✓ Winter allocation updated");
 }
+function setBaseSU(baseKey,val){
+  const v=Number(val); if(!isFinite(v)||v<=0) return;
+  stockRec.baseClasses.find(b=>b.key===baseKey).suPerHead=v;
+  saveAll(); renderStockRec();
+}
+function setSubDM(baseKey,subKey,val){
+  const v=Number(val); if(!isFinite(v)||v<=0) return;
+  stockRec.baseClasses.find(b=>b.key===baseKey).subclasses.find(s=>s.key===subKey).dmWinter=v;
+  saveAll(); renderStockRec();
+}
+function setSubOpening(baseKey,subKey,val){
+  const v=Number(val); if(!isFinite(v)||v<0) return;
+  const sub=stockRec.baseClasses.find(b=>b.key===baseKey).subclasses.find(s=>s.key===subKey);
+  const delta=stockRec.movements.filter(m=>m.baseClass===baseKey&&m.subClass===subKey).reduce((s,m)=>s+m.qty,0);
+  sub.opening=v-delta; // input shows the CURRENT count, so back-solve opening to land on the typed value
+  saveAll(); renderStockRec();
+  toast("✓ Head count updated");
+}
 function srAllocSelect(baseKey,subKey,current){
   const opts=['',...getPaddockOptions()];
   const isUnset=!current;
   const optionsHtml=opts.map(o=>`<option value="${o}" ${o===(current||'')?'selected':''}>${o===''?'— not yet allocated —':o}</option>`).join('');
-  return `<select class="sr-alloc-select" style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid ${isUnset?'var(--warn)':'var(--border)'};background:${isUnset?'#FFF4E0':'var(--card)'};color:${isUnset?'#7A4A00':'var(--fg)'}" onchange="setStockAllocation('${baseKey}','${subKey}',this.value)">${optionsHtml}</select>`;
+  return `<select class="sr-alloc-select" style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid ${isUnset?'#F0D9A0':'var(--border)'};background:${isUnset?'#FFF4E0':'var(--card)'};color:${isUnset?'#7A4A00':'var(--fg)'}" onchange="setStockAllocation('${baseKey}','${subKey}',this.value)">${optionsHtml}</select>`;
+}
+function numInput(value,onchange,width){
+  return `<input type="number" step="0.1" value="${value}" onchange="${onchange}" style="width:${width||52}px;font-size:11px;padding:2px 4px;border-radius:6px;border:1px solid var(--border);text-align:right">`;
 }
 function renderStockRec(){
   const bannerEl=document.getElementById('sr-alloc-banner');
@@ -5240,34 +5287,30 @@ function renderStockRec(){
     html+=`<div class="sec" style="margin-top:14px">${g.label}</div>`;
     html+=`<div style="background:white;border-radius:var(--rs);border:1px solid var(--border);overflow:hidden;margin-bottom:8px">`;
     bases.forEach(b=>{
-      const opening=srBaseOpening(b.key), current=srBaseCurrent(b.key), delta=current-opening;
+      const current=srBaseCurrent(b.key);
       const suTotal=Math.round(current*b.suPerHead*10)/10;
       const dmTotal=Math.round(srBaseDmTotal(b.key)*10)/10;
       gHead+=current; gSu+=suTotal; gDm+=dmTotal;
-      const mismatch=b.companyBriefTotal!=null && opening!==b.companyBriefTotal;
-      html+=`<div style="padding:9px 12px;border-bottom:1px solid var(--fog);${mismatch?'background:#FCE8E6':''}">
+      html+=`<div style="padding:9px 12px;border-bottom:1px solid var(--fog)">
         <div style="display:flex;justify-content:space-between;align-items:baseline;font-weight:700;font-size:13px">
           <span>${b.label}${b.ageTier?` (${b.ageTier})`:''}</span>
-          <span>${current} hd <span style="font-weight:400;color:var(--muted)">(${delta>0?'+':''}${delta})</span></span>
+          <span>${current} hd</span>
         </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">SU/hd ${b.suPerHead} → ${suTotal} SU &middot; DM ${dmTotal} kg/day</div>`;
-      if(mismatch){
-        html+=`<div style="font-size:11px;color:#7A1F1F;font-style:italic;margin-top:4px">Subclasses sum to ${opening}, company-brief.md lists ${b.companyBriefTotal} — flagged, confirm which is right.</div>`;
-      }
-      if(b.suFlag){ html+=`<div style="font-size:11px;color:#7A4A00;font-style:italic;margin-top:4px">SU note: ${b.suFlag}</div>`; }
-      if(b.subclasses.length>1 || b.subclasses[0].key!=='general'){
-        b.subclasses.forEach(sc=>{
-          const scCur=srSubCurrent(b.key,sc.key), scDelta=scCur-sc.opening;
-          const scDm=Math.round(scCur*sc.dmWinter*10)/10;
-          html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0 6px 14px;gap:8px">
-            <div style="font-size:12px;color:var(--muted);flex:1">${sc.label} — ${scCur} hd (${scDelta>0?'+':''}${scDelta}) &middot; ${scDm} kg DM/d</div>
-            ${srAllocSelect(b.key,sc.key,sc.winterAllocation)}
-          </div>`;
-          if(sc.dmFlag){ html+=`<div style="font-size:10px;color:#7A4A00;font-style:italic;padding-left:14px;margin-bottom:4px">DM note: ${sc.dmFlag}</div>`; }
-        });
-      } else if(b.subclasses[0].dmFlag){
-        html+=`<div style="font-size:11px;color:#7A4A00;font-style:italic;margin-top:4px">DM note: ${b.subclasses[0].dmFlag}</div>`;
-      }
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:4px">
+          <span>SU/hd</span>${numInput(b.suPerHead,`setBaseSU('${b.key}',this.value)`)}<span>→ ${suTotal} SU</span>
+          <span style="margin-left:8px">DM total</span><span style="font-weight:600">${dmTotal} kg/day</span>
+        </div>
+        <button class="btn btn-sm btn-secondary" style="margin-top:6px;font-size:11px;padding:3px 10px" onclick="openAddSubclass('${b.key}')">+ Add subclass</button>`;
+      b.subclasses.forEach(sc=>{
+        const scCur=srSubCurrent(b.key,sc.key);
+        html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0 6px 14px;gap:8px;flex-wrap:wrap">
+          <div style="font-size:12px;color:var(--muted);flex:1;min-width:90px">${sc.label}</div>
+          <span style="font-size:11px;color:var(--muted)">hd</span>${numInput(scCur,`setSubOpening('${b.key}','${sc.key}',this.value)`,46)}
+          <span style="font-size:11px;color:var(--muted)">DM/hd</span>${numInput(sc.dmWinter,`setSubDM('${b.key}','${sc.key}',this.value)`,46)}
+          <span style="font-size:11px;color:var(--muted)">= ${Math.round(scCur*sc.dmWinter*10)/10}kg/d</span>
+          ${srAllocSelect(b.key,sc.key,sc.winterAllocation)}
+        </div>`;
+      });
       html+=`</div>`;
     });
     html+=`</div>`;
@@ -5279,6 +5322,32 @@ function renderStockRec(){
     `<div style="background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:10px 12px;font-size:12px;margin-bottom:10px"><strong>Whole farm winter total:</strong> ${Math.round(farmSu*10)/10} SU &middot; ${Math.round(farmDm).toLocaleString()} kg DM/day required. Cross-check against feed-budget-baseline.md's supply (crops + silage + pasture growth).</div>`;
 
   renderStockMovements();
+}
+function openAddSubclass(baseKey){
+  editingStockMoveBaseKey=baseKey;
+  document.getElementById('srs-label').value='';
+  document.getElementById('srs-opening').value='';
+  document.getElementById('srs-dm').value='';
+  const allocSel=document.getElementById('srs-alloc');
+  allocSel.innerHTML=getPaddockOptions().map(o=>`<option value="${o}">${o}</option>`).join('');
+  document.getElementById('add-subclass-modal').classList.add('open');
+}
+function saveSubclass(){
+  const base=stockRec.baseClasses.find(b=>b.key===editingStockMoveBaseKey);
+  const label=document.getElementById('srs-label').value.trim();
+  const opening=Number(document.getElementById('srs-opening').value)||0;
+  const dmWinter=Number(document.getElementById('srs-dm').value);
+  const winterAllocation=document.getElementById('srs-alloc').value;
+  if(!label){ toast('Enter a name for the subclass'); return; }
+  if(!dmWinter||dmWinter<=0){ toast('Enter a DM/head/day rate'); return; }
+  if(!winterAllocation){ toast('A winter allocation is required'); return; }
+  let key=label.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+  if(!key || base.subclasses.find(s=>s.key===key)) key=key+'_'+Date.now();
+  base.subclasses.push({key,label,opening,winterAllocation,dmWinter,dmFlag:null});
+  saveAll();
+  closeModal('add-subclass-modal');
+  renderStockRec();
+  toast('✓ Subclass added');
 }
 function renderStockMovements(){
   const el=document.getElementById('sr-movements-list');
