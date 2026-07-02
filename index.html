@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="12.2">
+<meta name="app-version" content="12.3">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.2</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.3</div>
     </div>
   </div>
   <div class="tabs">
@@ -3793,92 +3793,95 @@ const BACKLOG_CATS = ["Jobs To Do","Holes to Fill","Poplars Block","Weed Wipe","
 const PASTURE_BLOCK_DEFS=[{key:"winterGraze",label:"Winter Graze"},{key:"autumnSaved",label:"Autumn Saved"}];
 const PASTURE_MONTH_NAMES=["","","","","May","June","July","August","September","","",""];
 // Animal Health Plan 2026–27 — Farmfirst (sheep) + VetEnt (deer/cattle/dogs)
-// Source: ai-brain/layer-1-context/animal-health-plan-2627.md
+// Source: ah-plan-viewer/index.html — updated 25 Jun 2026 plan (Brendon's changes merged over the vet plan). Do NOT rebuild from animal-health-plan-2627.md — that file is the old vet copy.
 const MONTH_NAMES_FULL=["","January","February","March","April","May","June","July","August","September","October","November","December"];
 const ANIMAL_HEALTH_PLAN=[
   {m:1,items:[
     {cls:"MA Ewes",action:"Weaning"},
     {cls:"2 Tooths",action:"Weaning (unless didn't lamb as hoggets)"},
     {cls:"Replacement ewe lambs/hoggets",action:"Weaning, shear, triple drench if needed, toxovax if mating as hoggets"},
-    {cls:"Lambs for finishing",action:"FEC and monitor — drench only if needed"},
+    {cls:"Lambs for finishing",action:"FEC and monitor - drench only if needed"},
     {cls:"Rams",action:"Ram palpations, check feet"},
     {cls:"Fawns",action:"Tagging + DNA, Multimin (1ml/50kg), 7-in-1 sensitiser"},
-    {cls:"Stags",action:"Regrowth all sale, cull & commercial stags: copper bullet (excl. culls). Monitor trophy stags. Velvet auction. Regrowth commercial mature stags: copper bullet. Sire stags regrowth: copper bullet + Selovin LA. Spikers regrowth: copper bullet + selenium. Join B11 spikers with B11 R1 hinds. Regrowth 3yo & 2yo commercial stags: copper bullet."},
-    {cls:"Cattle",action:"R2: remove bulls 5th–7th Jan"},
+    {cls:"Stags",action:"Regrowth all sale, cull & commercial stags: copper bullet (excl. culls). Monitor trophy stags. Velvet auction. Regrowth commercial mature stags: copper bullet. Sire stags regrowth: copper bullet + Selovin LA. Spikers regrowth: copper bullet + selenium + multimin. Join B11 spikers with B11 R1 hinds. Regrowth 3yo & 2yo commercial stags: copper bullet."},
+    {cls:"Cattle",action:"R2 (Heifers): remove bulls 5th-7th Jan. This bull-out date sets the heifer fetal-aging scan date - see March Cattle row (~17 March, 10 weeks later)."},
     {cls:"Dogs",action:"Annual WOOF vax booster, flea treatment, Drontal. Droncit. Multi-wormer (Drontal/Milbemax)."},
-  ],products:["Toxovax","Multimin","7-in-1 sensitiser","Copper bullets","Selovin LA","Selenium","Droncit","Drontal/Milbemax (multi-wormer)","Flea treatment"]},
+  ],products:["Toxovax","Triple drench","Multimin","7-in-1 sensitiser","Copper bullets","Selovin LA","Selenium","Droncit","Drontal/Milbemax (multi-wormer)","Flea treatment","CIDRs + AI/ET programming supplies (order now for March)"]},
   {m:2,items:[
-    {cls:"MA Ewes",action:"4–6 weeks post-weaning — udder score ewes, recommend Campy booster"},
-    {cls:"2 Tooths",action:"Early Feb — FEC, triple drench if needed, Toxo if mating for first time as 2ths, first Campy"},
+    {cls:"MA Ewes",action:"4-6 weeks post-weaning - udder score ewes, recommend Campy booster"},
+    {cls:"2 Tooths",action:"Early Feb - FEC, triple drench if needed, Toxo if mating for first time as 2ths, first Campy"},
     {cls:"Replacement ewe lambs/hoggets",action:"Boost 5-in-1 vaccine in keepers, FEC + triple drench as needed, first Campyvax"},
-    {cls:"Lambs for finishing",action:"FEC and monitor — Selenium + B12 if needed"},
-    {cls:"Rams",action:"Trace elements — B12 plus Selenium"},
-    {cls:"MA Hinds",action:"Red R2 hinds: draft into mating mobs, injectable drench, Selovin LA (1ml/50kg). B11 R2 hinds: injectable drench, Selovin LA."},
-    {cls:"Stags",action:"Score & truck trophy stags. Trophy sire stags: cut hard antler + copper bullet. B11 R2 stags running with hinds: injectable drench."},
+    {cls:"Lambs for finishing",action:"FEC and monitor - Selenium + B12 if needed"},
+    {cls:"Rams",action:"Trace elements - B12 plus Selenium"},
+    {cls:"MA Hinds",action:"Red R2 hinds: draft into mating mobs, injectable drench, Selovin LA (1ml/50kg). B11 R2 hinds: injectable drench, Selovin LA, multimin."},
+    {cls:"Stags",action:"Score & truck trophy stags. Trophy sire stags: cut hard antler + copper bullet. B11 R2 stags running with hinds: injectable drench. PRE-JOINING (moved from May): sire stags - copper bullet + selenium before joining, since these are trace-element top-ups best given ahead of the rut rather than after it. Covers ALL B11 R2 and R3 sire stags."},
     {cls:"Cattle",action:"MA cows: remove bulls 1st Feb"},
+    {cls:"Fawns / Hinds (weaning)",action:"ALL fawns weaned in the LAST WEEK of February - this now includes B11 fawns (changed from the original plan, where B11 fawns stayed on mum until the rut finished at the end of April). Recip fawns are the only exception - can wean early March or later (not in use this season as the recip hinds aren't being used). Fawns: 1st YersiniaVax, 1st 7-in-1, Cervidae oral drench mixed with MoreMag, Multimin. Red hinds: Selovin LA. B11 MA hinds: Selovin LA + multimin, remove stags, box up hind mobs (moved here from April). NEW STANDING ITEM: all fawns get a MONTHLY DRENCH from weaning (last week of February) through to 1 June. Products: Cervidae (oral) at weaning, then ALTERNATING with injectable Exodus each month after - end of March = Exodus, end of April = Cervidae, end of May = Exodus, finishing by 1 June. See March/April/May Weaners rows for the cross-reference."},
     {cls:"Other",action:"Dip for lice and fly"},
-  ],products:["Campyvax","Toxovax","5-in-1 clostridial vaccine","Selenium","B12","Lice & fly dip","Injectable drench","Selovin LA","Copper bullet"]},
+  ],products:["Campyvax","Toxovax","5-in-1 clostridial vaccine","Selenium","B12","Lice & fly dip","Injectable drench","Selovin LA","Multimin","Copper bullet","YersiniaVax","7-in-1 sensitiser","Cervidae oral drench","MoreMag"]},
   {m:3,items:[
-    {cls:"MA Ewes",action:"Mating — rams in with MA ewes"},
-    {cls:"2 Tooths",action:"Mating — rams in with 2ths. Early March — boost Campy."},
+    {cls:"MA Ewes",action:"Mating - rams in with MA ewes"},
+    {cls:"2 Tooths",action:"Mating - rams in with 2ths. Early March - boost Campy."},
     {cls:"Replacement ewe lambs/hoggets",action:"Boost campyvax"},
     {cls:"Rams",action:"5-in-1 clostridial booster"},
-    {cls:"Weaners/R1",action:"Finish weaning Reds"},
-    {cls:"MA Hinds",action:"Draft hinds into mating mobs, join with stag by 10 March. Programming AI, recips & donor hinds."},
+    {cls:"Weaners/R1",action:"All fawn weaning (Reds + B11) now done in the last week of February - see February Fawns row. Only recip fawns may still be on mum into March (not applicable this season, recip hinds not in use). Monthly drench due end of March - INJECTABLE EXODUS (see February Fawns row for the full Feb-to-June schedule)."},
+    {cls:"MA Hinds",action:"Draft hinds into mating mobs, join with stag by 10 March. Programming AI, recips & donor hinds - weaning is already finished by end of February, so this can proceed on schedule."},
+    {cls:"Commercial Hinds",action:"B11 stag joins Commercial hinds - first week of March."},
+    {cls:"ET / AI / Recip Programme (detail)",action:"Pulled from Workload & Planning docs - Lincoln Hills-specific lines left out per your instruction. WEEK 1: hinds brought back through and drafted into mating mobs using Mark's draft list; natural mating mobs joined with stag by the 10th. WEEK 2: programming of AI, recip & donor hinds begins. Recip hinds don't need programming until mid-March, so recip fawns can wean later than the rest if weather held up the main weaning (see February Fawns row). Recip hind feed prep (set up in February): low-quality bulk feed straight after weaning, then onto prepared good-quality pasture 3-4 days before the CIDR pull. WEEK 3: busiest week of the month - AI and ET programming running together. Any cull hinds flagged by the breeding programme must be at the works by this point. WEEK 4: ET programming continues; backup stags go out to AI hinds; weaning weights taken for stud red AND B11 weaners (post-weaning check, since both wean together now - see February Fawns row) with injection drench, 2nd 7-in-1, 2nd YersiniaVax. STAFFING: extra staff for the breeding programme should be organised ahead of time (a Jan/Feb task) - Ag team's workload is lighter in March generally so can help cover AI/ET work. SUPPLIES: CIDRs, programming drugs and AI/ET supplies should be ordered in January so they're on hand. NOTE: draft lists (recip/donor/AI hind selection, cull hinds, single-sire mob boxing) are made by Mark each season - not yet a standing document, worth building out with him directly."},
     {cls:"Stags",action:"Finish trucking trophy stags. Set stock old stags on flats."},
-  ],products:["Campyvax","5-in-1 clostridial vaccine"]},
+    {cls:"Cattle",action:"Calf weaning (moved from April): truck out steers & non-replacement heifer calves. Replacement calves: oral drench, 20g-30g copper bullet [confirm exact gram weight - vet plan says 20g, workload notes say 30g], Selovin LA/selenium, 7-in-1 sensitiser. MUST be complete by the first week of March at the latest, before AI/ET/recip programming starts (see MA Hinds row above). Reason for the early move: offload unwanted calves and reduce stress on the flats heading into autumn. COW SCANNING (MA cows, identify lates): SECOND WEEK of March, immediately after calf weaning finishes - resolves the earlier March-vs-May conflict in favour of March. HEIFER SCANNING: ~17 March (10 weeks after the 5-7 Jan bull-out, for accurate fetal aging - standard window is 8-12 weeks, shift within that range if you want a different point). END OF MARCH: MA cows before Hill Block (moved from May - the treatment has to happen before the move, and cows now go to the Hill Block end of March, not June): Selovin LA, 30g copper bullet, Lypor lice treatment. Move breeding cows onto Hill Block for winter - END OF MARCH (moved from June)."},
+  ],products:["Campyvax","5-in-1 clostridial vaccine","Injectable Exodus","Oral drench","Copper bullet (20-30g - confirm calf gram weight)","Selovin LA","7-in-1 sensitiser/booster","YersiniaVax booster","Injectable drench","Lypor lice treatment"]},
   {m:4,items:[
-    {cls:"Rams",action:"25 Apr — rams in with MA ewes"},
-    {cls:"Other",action:"In future, if wintering ewes on brassicas, use Flexidine or Depodine"},
-    {cls:"Weaners/R1",action:"All weaners except B11: weaning weights, injectable drench, YersiniaVax booster, 7-in-1 booster"},
+    {cls:"Rams",action:"25 Apr - rams in with MA ewes"},
+    {cls:"Weaners/R1",action:"All weaners except B11: weaning weights, injectable drench, YersiniaVax booster, 7-in-1 booster. B11 weaners (from R3 hinds): drench. Monthly drench due end of April too - CERVIDAE (see February Fawns row)."},
     {cls:"MA Hinds",action:"AI hinds: join with backup stags"},
     {cls:"Stags",action:"ET programming"},
-    {cls:"Cattle",action:"Weaning — truck out steers & non-replacement heifer calves. Replacement calves: oral drench, 20g copper bullet, Selovin LA, 7-in-1 sensitiser."},
-  ],products:["Injectable drench","YersiniaVax booster","7-in-1 booster","Oral drench","Copper bullet (20g)","Selovin LA"]},
+    {cls:"Cattle",action:"Calf weaning moved to March (see March Cattle row) to finish before AI/ET/recip programming starts. EARLY APRIL (moved from May): calves 4-6 weeks post weaning - injectable drench + 7-in-1 booster (timing now follows the March weaning date, not the old April one)."},
+  ],products:["Injectable drench","YersiniaVax booster","7-in-1 booster","Cervidae oral drench","Drench (B11 weaners - product TBC)"]},
   {m:5,items:[
     {cls:"Other",action:"Annual RVM script paperwork"},
-    {cls:"MA Hinds",action:"Pull out sire stags & box up hind mobs. Red MA & R2 hinds: iodine injection + copper bullet. B11 MA & R2 hinds: iodine injection + copper bullet. Scan recip hinds."},
-    {cls:"Stags",action:"Remove sire stags from hinds. Sire stags post-rut treat: drench, copper bullet, B12 ± selenium."},
-    {cls:"Cattle",action:"Calves 4–6w post weaning: injectable drench + 7-in-1 booster. Scan heifers. Scan MA cows — identify dates. R2 heifers: Selovin LA, 30g copper bullet, Lypor lice treatment. MA cows before Hill Block: Selovin LA, 30g copper bullet, Lypor lice treatment. MA cows: 7-in-1."},
-  ],products:["Iodine injection","Copper bullet","Drench","B12","Selenium","Injectable drench","7-in-1","Selovin LA","Lypor lice treatment"]},
+    {cls:"Weaners/R1",action:"Onto crop - fodder beet, MID MAY (moved from June). Monthly drench due end of May - INJECTABLE EXODUS (final one in the Feb-to-June series - see February Fawns row)."},
+    {cls:"MA Hinds",action:"Pull out sire stags & box up hind mobs. Red MA & R2 hinds: iodine injection + copper bullet. B11 MA & R2 hinds: iodine injection + copper bullet. THIRD WEEK OF MAY (now specified - previously no fixed week): AI hind scanning with fetal aging, done alongside Recip hind scanning."},
+    {cls:"Stags",action:"Remove sire stags from hinds. Sire stags post-rut treat: drench + B12 only (copper bullet and selenium moved to February, pre-joining - see February Stags row). Covers ALL B11 R2 and R3 sire stags. LAST WEEK OF MAY: stags transition into the barn - this fills a gap in the original vet plan, which had stags being monitored in the barn from July and coming out in Aug/Sept, but never said when they actually went in. SALE STAGS (moved from August): copper bullet, drench, selenium, 7-in-1, B12."},
+    {cls:"Cattle",action:"(Calves 4-6w post weaning drench/booster moved to early April - see April Cattle row. Cow and heifer scanning, and the MA cows pre-Hill-Block treatment, moved to March - see March Cattle row.) R2 heifers: Selovin LA, 30g copper bullet, Lypor lice treatment. MA cows: 7-in-1."},
+  ],products:["Injectable Exodus","Iodine injection","Copper bullet","Drench","B12","Selenium","7-in-1","Selovin LA","Lypor lice treatment"]},
   {m:6,items:[
     {cls:"Other",action:"Dip for lice out of shed after shearing"},
-    {cls:"Weaners/R1",action:"Onto crop — fodder beet"},
-    {cls:"MA Hinds",action:"Scan hinds (early–mid month)"},
-    {cls:"Stags",action:"Draft stags from sire mobs into commercial line"},
-    {cls:"Cattle",action:"Move breeding cows onto Hill Block for winter. Shift cattle onto Hill Block."},
+    {cls:"Weaners/R1",action:"(Onto crop moved to mid-May - see May Weaners/R1 row.) [Workload notes: stud weaners get Cervidae drench, multimin + 1st June weight here or in May - confirm timing]"},
+    {cls:"MA Hinds",action:"MID JUNE (now specified - previously just \"early-mid month\"): all other hind scanning, with fetal aging - covers everything except Commercial hinds (AI and Recip hinds already scanned third week of May - see May row). COMMERCIAL HINDS are different: only the LIGHT ones get scanned, not the full mob."},
+    {cls:"Cattle",action:"(Breeding cows already on the Hill Block since end of March - see March Cattle row.) EARLY JUNE (moved from July): R2 heifers - 7-in-1 + lice treatment, done before they go onto the Hill Block. LATE JUNE: in-calf R2 heifers head to the Hill Block."},
     {cls:"Dogs",action:"Droncit. Annual WOF (can do while on farm for scanning cows)."},
-  ],products:["Lice dip","Droncit"]},
+  ],products:["Lice dip","Cervidae oral drench","Multimin","7-in-1","Lypor lice treatment","Droncit"]},
   {m:7,items:[
-    {cls:"Replacement ewe lambs/hoggets",action:"End July — 5-in-1 clostridial booster to line up with prelamb when older"},
-    {cls:"Weaners/R1",action:"Sample weigh weaners to monitor growth rates"},
-    {cls:"Stags",action:"Monitor stag condition in barn"},
-    {cls:"Cattle",action:"R2 heifers: 7-in-1. In-calf cows: put out Mag lick."},
+    {cls:"Replacement ewe lambs/hoggets",action:"End July - 5-in-1 clostridial booster to line up with prelamb when older"},
+    {cls:"Weaners/R1",action:"Sample weigh weaners to monitor growth rates. Blood test a sample of weaners for trace elements."},
+    {cls:"Stags",action:"Monitor stag condition in barn (MA stags, in since last week of May - see May Stags row). END OF JULY: second wave into the barn - R2 Velvet and Trophy stags, and R3 commercial Velvet stags."},
+    {cls:"Cattle",action:"(R2 heifer 7-in-1 + lice treatment moved to early June, before the Hill Block move - see June Cattle row.) In-calf cows: put out Mag lick."},
     {cls:"Dogs",action:"Multi-wormer (Drontal/Milbemax)"},
-  ],products:["5-in-1 clostridial vaccine","7-in-1","Mag lick","Drontal/Milbemax (multi-wormer)"]},
+  ],products:["5-in-1 clostridial vaccine","Mag lick","Drontal/Milbemax (multi-wormer)"]},
   {m:8,items:[
     {cls:"MA Ewes",action:"Prelamb treatment: 5-in-1 with selenium and B12 booster"},
     {cls:"2 Tooths",action:"Prelamb treatment: 5-in-1 with selenium and B12 booster"},
     {cls:"Other",action:"Animal health planning"},
-    {cls:"Weaners/R1",action:"Male R1s off crop onto grass. Comm. weaners: weights + Cervidae."},
-    {cls:"Stags",action:"Older stags out of barn/off crop into saved grass. Sale stags: blood test & check testicles, copper bullet, injectable drench, 7-in-1, B12. Button drop draft stags & pull out trophies."},
-    {cls:"Cattle",action:"R1 heifers: BVD sensitiser"},
+    {cls:"Weaners/R1",action:"FIRST WEEK OF AUGUST (now specified - was just \"off crop onto grass\"): commercial MALE weaners transition off fodder beet onto pasture. Commercial FEMALE weaners transition off fodder beet onto kale (not pasture - different destination crop). Comm. weaners: weights + Cervidae."},
+    {cls:"Stags",action:"MA stags out of the barn - 1 AUGUST (date now confirmed; previously just \"older stags\" with no fixed date). Off crop into saved grass. (Sale stag copper bullet/drench/selenium/7-in-1/B12 moved to May, and blood test/testicle check moved to November - see those rows.) Button drop draft stags & pull out trophies."},
+    {cls:"Cattle",action:"R1 heifers: BVD sensitiser (1st BVD). MA cows set stock on hill for calving: 7-in-1."},
     {cls:"Dogs",action:"Droncit"},
-  ],products:["5-in-1 + selenium + B12 (prelamb)","Cervidae drench","Copper bullet","Injectable drench","7-in-1","B12","BVD sensitiser","Droncit"]},
+  ],products:["5-in-1 + selenium + B12 (prelamb)","Cervidae oral drench","BVD sensitiser","7-in-1","Droncit"]},
   {m:9,items:[
     {cls:"MA Ewes",action:"Lambing"},
     {cls:"2 Tooths",action:"Lambing"},
-    {cls:"Weaners/R1",action:"R1 hinds off crop onto grass. Studs 1st Sept weights + injectable drench. R1 B11 1st Sept weights + Cervidae drench. R1 Comm: weigh & draft for finishing, Cervidae (final)."},
+    {cls:"Weaners/R1",action:"SEPTEMBER: all R1 hinds to Lincoln Hills (resolved - the old November row about holding back potential donor hinds has been removed, since none are held back now). EARLY SEPTEMBER: drench all fawns (this season's weaner cohort - applies across all classes, commercial included). START OF SEPTEMBER: all non-commercial weaners off crop (now specified explicitly - this includes Studs and B11 R1s, not just the R1 hinds already noted). R1 hinds off crop onto grass. Studs 1st Sept weights + injectable drench. R1 B11 1st Sept weights + Cervidae drench. (Commercial weaners are separate - off fodder beet onto pasture/kale first week of August, see August row.) R1 Comm: weigh & draft for finishing, Cervidae (final oral drench)."},
     {cls:"MA Hinds",action:"Hinds off crop or out of barn, draft into lines"},
-    {cls:"Stags",action:"Younger stags out of barn/off crop onto grass. Draft R2 stags into lines onto grass. Continue button drop draft."},
-    {cls:"Cattle",action:"Bulls: BVD booster (4–6 weeks pre-mating)"},
+    {cls:"Stags",action:"1 SEPT: R3 commercial Velvet stags out of the barn. 15 SEPT: R2 stags out of the barn (dates now confirmed; previously just \"younger stags\" with no fixed date). Off crop onto grass. Draft R2 stags into lines onto grass. Continue button drop draft."},
+    {cls:"Cattle",action:"Bulls: BVD booster (4-6 weeks pre-mating). R2/R1 heifers off crop: 2nd BVD vaccinate + injectable drench."},
     {cls:"Dogs",action:"Multi-wormer (Drontal/Milbemax)"},
-  ],products:["Injectable drench","Cervidae drench","BVD booster","Drontal/Milbemax (multi-wormer)"]},
+  ],products:["Injectable drench","Cervidae oral drench","BVD booster","Drontal/Milbemax (multi-wormer)"]},
   {m:10,items:[
     {cls:"MA Ewes",action:"Tailing"},
     {cls:"2 Tooths",action:"Tailing"},
-    {cls:"Weaners/R1",action:"Maternal & B11 spikers: EMA and CARLA testing. R1 studs: weights, ± injectable drench (final)."},
-    {cls:"MA Hinds",action:"All hinds: 7-in-1. R2 hinds: ± drench. Set stock hinds for fawning by 20 Oct."},
+    {cls:"Weaners/R1",action:"Maternal & B11 spikers: EMA and CARLA testing. R1 studs: weights, +/- injectable drench (final)."},
+    {cls:"MA Hinds",action:"All hinds: 7-in-1. R2 hinds: +/- drench. Set stock hinds for fawning by 20 Oct."},
     {cls:"Stags",action:"Start of velveting"},
     {cls:"Dogs",action:"Droncit"},
   ],products:["EMA/CARLA testing","Injectable drench","7-in-1","Drench","Droncit"]},
@@ -3886,12 +3889,11 @@ const ANIMAL_HEALTH_PLAN=[
     {cls:"MA Ewes",action:"Tailing"},
     {cls:"2 Tooths",action:"FEC, triple drench if needed, 5-in-1 booster"},
     {cls:"Replacement ewe lambs/hoggets",action:"FEC, triple drench if needed, 5-in-1 booster"},
-    {cls:"Weaners/R1",action:"R1 hinds: pull out potential donor hinds & send remainder to Lincoln Hills"},
     {cls:"Fawns",action:"Fawning begins"},
-    {cls:"Stags",action:"Busiest 3 weeks of velveting — normally 25 Oct–15 Nov"},
-    {cls:"Cattle",action:"Heifers: bull in 15 Nov (1:80). Calf marking — weights, heifer calves Mob A visual tags, Mob B & steer calves EID tag only. Finish calf marking."},
+    {cls:"Stags",action:"Busiest 3 weeks of velveting - normally 25 Oct-15 Nov. SALE STAGS (moved from August): blood test & check testicles."},
+    {cls:"Cattle",action:"Heifers: bull in 5 Nov (1:80) - now SAME DATE as MA cows (changed from 15 Nov). Bull-out for heifers stays 5-7 Jan (see January Cattle row), which stretches their mating period from ~51 to ~61 days - now almost matching the MA cows' 62-day window. MA cows: bull in 5 Nov (1:50) - moved from 1 Dec to target 15 August calving start (283-day gestation), 62-day mating period kept the same as the prior Dec1-Feb1 system. Calf marking - weights, heifer calves Mob A visual tags, Mob B & steer calves EID tag only. Finish calf marking."},
     {cls:"Dogs",action:"Droncit"},
-  ],products:["Triple drench","5-in-1 booster","EID tags","Visual tags","Droncit"]},
+  ],products:["Triple drench","5-in-1 booster","EID tags","Visual tags","Blood test kit (sale stags)","Droncit"]},
   {m:12,items:[
     {cls:"MA Ewes",action:"Dip for fly"},
     {cls:"2 Tooths",action:"Dip for fly"},
@@ -3899,7 +3901,7 @@ const ANIMAL_HEALTH_PLAN=[
     {cls:"Other",action:"Health planning half-year catch-up"},
     {cls:"Fawns / MA Hinds",action:"Fawning"},
     {cls:"Stags",action:"Regrowth Forrester auction stags (sold mid Dec): copper bullet. Finish 1st cut 3yo. Draft sale stags into lines: velvet auction, private sale Forresters, auction Forresters."},
-    {cls:"Cattle",action:"MA cows: bull in 1 Dec (1:50)"},
+    {cls:"Cattle",action:"MA cows: bull out ~6 Jan (62 days after 5 Nov join - same length as old Dec1-Feb1 mating window). Pull bull out of R2 heifers between Christmas and New Year."},
     {cls:"Dogs",action:"Multi-wormer (Drontal/Milbemax)"},
   ],products:["Fly dip","Triple drench","Copper bullet","Drontal/Milbemax (multi-wormer)"]},
 ];
