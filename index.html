@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="12.4.1">
+<meta name="app-version" content="12.5.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.4.1</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.5.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -2213,17 +2213,18 @@ function calcP(p){
   if(p.finishDate){
     finishDays=Math.max(0,Math.ceil((new Date(p.finishDate)-TODAY)/86400000));
   }
-  // Step through consumption periods — overlapping mobs SUM (future mobs are additive on top of the current mob)
+  // Step through consumption periods — overlapping mobs SUM (future mobs are additive on top of the current mob).
+  // The current mob is treated as OPEN-ENDED here, so daysRem = when the CROP physically depletes if grazed as-is,
+  // independent of the planned move-off date. The planned date drives surplus/deficit and status below.
+  const BIG=100000;
+  const yr=TODAY.getFullYear();
+  const sepDay=Math.max(0,Math.ceil((new Date(yr,8,15)-TODAY)/86400000)); // days to 15 Sep
   let daysRem=9999;
   if(dmRem>0){
-    const BIG=100000;
-    const yr=TODAY.getFullYear();
-    const sepDay=Math.max(0,Math.ceil((new Date(yr,8,15)-TODAY)/86400000)); // days to 15 Sep
-    // Rate-change events: +rate at start, -rate at end. Current mob spans 0→finish (or open-ended).
     const events=[];
     if(cropDay>0){
       events.push({d:0,dr:cropDay});
-      events.push({d:finishDays!=null?finishDays:BIG,dr:-cropDay});
+      events.push({d:BIG,dr:-cropDay});
     }
     (p.futureMobs||[]).forEach(m=>{
       const rate=(m.head||0)*(m.dmPerHead||0);
@@ -2251,9 +2252,31 @@ function calcP(p){
     if(daysRem===9999&&lastConsumingEnd>0&&lastConsumingEnd<BIG) daysRem=lastConsumingEnd;
   }
   const finish=new Date(TODAY.getTime()+daysRem*86400000);
-  const status=!p.active?"inactive":daysRem<14?"danger":daysRem<30?"warn":"ok";
+  // Surplus/deficit crop DM at the planned move-off: what's still standing when the mob comes off as planned.
+  // Positive = feed left over; negative = crop runs short before the plan.
+  let surplusDM=null;
+  if(p.finishDate&&dmRem>0){
+    let consumedToPlan=cropDay*finishDays;
+    (p.futureMobs||[]).forEach(m=>{
+      const rate=(m.head||0)*(m.dmPerHead||0);if(rate<=0)return;
+      const sd=m.startDate?Math.max(0,Math.ceil((new Date(m.startDate)-TODAY)/86400000)):0;
+      const ed=m.endDate?Math.max(0,Math.ceil((new Date(m.endDate)-TODAY)/86400000)):sepDay;
+      consumedToPlan+=rate*Math.max(0,Math.min(ed,finishDays)-sd);
+    });
+    surplusDM=dmRem-consumedToPlan;
+  }
+  // Status: when a planned move-off is set, flag on whether the crop MAKES the plan (deficit),
+  // not on how soon the plan is — a paddock with surplus feed is on schedule, not "running out".
+  let status;
+  if(!p.active) status="inactive";
+  else if(finishDays!=null){
+    const deficit=finishDays-daysRem; // days the crop falls short of the plan
+    status=deficit>=14?"danger":deficit>=5?"warn":"ok";
+  } else {
+    status=daysRem<14?"danger":daysRem<30?"warn":"ok";
+  }
   if(finishDays!=null&&daysRem<9999) targetDiff=Math.round(daysRem-finishDays);
-  return{remHa,dmRem,cropDay,haDay,mDay,daysRem,finish,status,totalSuppDM,finishDays,targetDiff,finishDate:p.finishDate||null};
+  return{remHa,dmRem,cropDay,haDay,mDay,daysRem,finish,status,totalSuppDM,finishDays,targetDiff,surplusDM,finishDate:p.finishDate||null};
 }
 // ══════════════════════════════════════════════════════════
 // HELPERS
@@ -2633,14 +2656,14 @@ function renderPaddocks(){
           </div>
           <div class="stat-grid">
             <div class="stat-box"><div class="stat-label">DM remaining</div><div class="stat-val">${fmt(c.dmRem/1000,1)}t</div><div class="stat-sub">${fmt(c.dmRem)} kg DM</div></div>
-            <div class="stat-box"><div class="stat-label">Est. finish</div><div class="stat-val" style="${c.status==="danger"?"color:var(--danger)":c.status==="warn"?"color:var(--warn)":""}">${c.daysRem>300?"—":fmtDate(c.finish)}</div><div class="stat-sub">${c.daysRem>300?"not started":fmt(c.daysRem,0)+" days"}</div></div>
+            <div class="stat-box"><div class="stat-label">Crop lasts</div><div class="stat-val" style="${c.status==="danger"?"color:var(--danger)":c.status==="warn"?"color:var(--warn)":""}">${c.daysRem>300?"—":fmtDate(c.finish)}</div><div class="stat-sub">${c.daysRem>300?"not started":fmt(c.daysRem,0)+" days on crop"}</div></div>
             <div class="stat-box"><div class="stat-label">Break / day</div><div class="stat-val">${fmt(c.mDay,1)}<span style="font-size:13px;font-weight:400"> m</span></div><div class="stat-sub">${fmt(c.haDay,3)} ha/day</div></div>
             <div class="stat-box"><div class="stat-label">Total supp DM/day</div><div class="stat-val">${fmt(c.totalSuppDM)}<span style="font-size:13px;font-weight:400"> kg</span></div><div class="stat-sub">DM all types</div></div>
           </div>
           <div class="supp-tags" style="margin-top:8px">${suppTagsHTML}</div>
-          ${c.finishDate&&c.targetDiff!=null?`<div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-size:11px;color:var(--muted)">Planned finish: ${c.finishDate} (${c.finishDays}d left)</span><span class="${c.targetDiff>=5?"target-surplus":c.targetDiff<=-5?"target-deficit":"target-ontarget"}">${c.targetDiff>=0?"+":""}${c.targetDiff}d ${c.targetDiff>=5?"surplus ✓":c.targetDiff<=-5?"deficit ⚠":"on target"}</span></div>`:""}
-          ${c.status==="danger"&&p.active?`<div class="alert alert-danger" style="margin-top:8px;font-size:11px">🔴 Under 2 weeks — plan mob movement now</div>`:""}
-          ${c.status==="warn"&&p.active?`<div class="alert alert-warn" style="margin-top:8px;font-size:11px">⚠ Under 30 days — confirm next paddock</div>`:""}
+          ${c.finishDate&&c.targetDiff!=null?`<div style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-size:11px;color:var(--muted)">Planned off: ${fmtDate(new Date(c.finishDate))} (${c.finishDays}d)</span><span class="${c.targetDiff>=5?"target-surplus":c.targetDiff<=-5?"target-deficit":"target-ontarget"}">${c.targetDiff>=5?`+${c.targetDiff}d${c.surplusDM>0?" · "+fmt(c.surplusDM/1000,1)+"t":""} surplus ✓`:c.targetDiff<=-5?`${c.targetDiff}d${c.surplusDM<0?" · "+fmt(Math.abs(c.surplusDM)/1000,1)+"t short":""} deficit ⚠`:"on target"}</span></div>`:""}
+          ${c.status==="danger"&&p.active?`<div class="alert alert-danger" style="margin-top:8px;font-size:11px">🔴 ${c.finishDate?`Crop runs short of plan by ${Math.abs(c.targetDiff)}d — line up feed`:"Under 2 weeks of crop — plan mob movement now"}</div>`:""}
+          ${c.status==="warn"&&p.active?`<div class="alert alert-warn" style="margin-top:8px;font-size:11px">⚠ ${c.finishDate?`Crop tight against plan (${c.targetDiff>=0?"+":""}${c.targetDiff}d) — confirm feed`:"Under 30 days of crop — confirm next paddock"}</div>`:""}
           ${p.note?`<div style="font-size:11px;color:var(--muted);margin-top:6px;font-style:italic">${p.note}</div>`:""}
           ${histHTML}
         </div>
