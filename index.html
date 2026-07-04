@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="12.5.0">
+<meta name="app-version" content="12.5.1">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.5.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.5.1</div>
     </div>
   </div>
   <div class="tabs">
@@ -2414,8 +2414,13 @@ function calcSilageProjection(sil){
   return hadAnyDraw?151:999; // 151 = active draws but no depletion; 999 = no draws configured
 }
 function renderOverview(){
-  const dangers=paddocks.filter(p=>calcP(p).status==="danger");
-  const warns=paddocks.filter(p=>calcP(p).status==="warn");
+  // Overview only surfaces an off-track paddock once its crop is actually getting close to running out.
+  // Far-out plan shortfalls stay on the Paddocks tab (their card alert) until nearer the time — red under
+  // 14 days of crop left, amber under 30, nothing beyond 30. Keeps the "under 14/30 days" banners accurate.
+  const OV_NEAR=30, OV_RED=14;
+  const ovLevel=p=>{const c=calcP(p);if(c.status!=="danger"&&c.status!=="warn")return null;if(c.daysRem>=OV_NEAR)return null;return c.daysRem<OV_RED?"danger":"warn";};
+  const dangers=paddocks.filter(p=>ovLevel(p)==="danger");
+  const warns=paddocks.filter(p=>ovLevel(p)==="warn");
   // Days-of-crop countdown — weighted by daily demand across all active paddocks
   const active=paddocks.filter(p=>p.active);
   const totalDmRem=active.reduce((a,p)=>a+calcP(p).dmRem,0);
@@ -2444,7 +2449,7 @@ function renderOverview(){
     const totHa=g.reduce((a,p)=>a+p.ha,0);
     const usedHa=g.reduce((a,p)=>a+p.used,0);
     const totDM=g.reduce((a,p)=>a+calcP(p).dmRem,0);
-    const flags=g.filter(p=>["danger","warn"].includes(calcP(p).status)).length;
+    const flags=g.filter(p=>ovLevel(p)).length;
     const pct=totHa>0?Math.min(100,(usedHa/totHa)*100):0;
     const fc=flags>0?(dangers.some(p=>p.crop===ct)?"fill-danger":"fill-warn"):"fill-ok";
     ch+=`<div class="card" style="margin-bottom:8px;border-left:4px solid ${col.dot}"><div class="card-body" style="padding:12px 14px">
@@ -4935,7 +4940,7 @@ function renderFlagStrip(){
   // 5. Any paddock deficit >= 10 days
   const bigDeficit=paddocks.filter(p=>{
     const c=calcP(p);
-    return c&&c.targetDiff!=null&&c.targetDiff<=-10;
+    return c&&c.targetDiff!=null&&c.targetDiff<=-10&&c.daysRem<30;
   });
   if(bigDeficit.length){
     flags.push({label:`📉 ${bigDeficit.length} paddock${bigDeficit.length>1?"s":""} behind target`,cls:"flag-warn",tab:"breaks"});
