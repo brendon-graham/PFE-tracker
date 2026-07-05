@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="12.5.1">
+<meta name="app-version" content="12.6.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.5.1</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.6.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -2413,6 +2413,68 @@ function calcSilageProjection(sil){
   }
   return hadAnyDraw?151:999; // 151 = active draws but no depletion; 999 = no draws configured
 }
+function calcSilageSurplus(sil){
+  // DM left in the pit once every DATED draw on it has finished (the end-of-winter level).
+  // Dated draws = crop-paddock finish/supp end dates + barn finish + barn schedule mobs.
+  // Undated pasture-mob draws are subtracted up to that date but do not set the horizon —
+  // they flag `ongoing` (draw keeps nibbling after). Returns {dm,endDate,ongoing} or null
+  // (no dated draw, or the pit runs out before then — days-remaining covers that case).
+  const barnTotalPct=barnCalc.feeds.reduce((a,f)=>a+(f.pctDM||0),0)||100;
+  const barnSilFrac={};
+  barnCalc.feeds.forEach(f=>{if(!f.silageId)return;barnSilFrac[f.silageId]=(barnSilFrac[f.silageId]||0)+(f.pctDM||0)/barnTotalPct;});
+  const myFrac=barnSilFrac[sil.id]||0;
+  const barnFinish=barnCalc.finishDate?new Date(barnCalc.finishDate):null;
+  const barnDailyTotal=barnCalc.head*(barnCalc.lw*barnCalc.dmPct/100);
+  const freqFactor=f=>{if(f==='2d')return 1;const sc=getScenario(f);return sc&&Array.isArray(sc.days)?sc.days.reduce((a,b)=>a+b,0)/7:1;};
+  const today=new Date(TODAY);today.setHours(0,0,0,0);
+  let lastEnd=null; const bump=t=>{if(t&&(!lastEnd||t>lastEnd))lastEnd=t;};
+  paddocks.filter(p=>p.active).forEach(p=>{
+    (p.supps||[]).forEach(s=>{
+      const mapped=getSilageForSuppType(s.type); if(!mapped||mapped.id!==sil.id)return;
+      const ends=[]; if(p.finishDate)ends.push(new Date(p.finishDate)); if(s.endDate)ends.push(new Date(s.endDate));
+      if(ends.length)bump(new Date(Math.min(...ends.map(d=>d.getTime()))));
+    });
+  });
+  if(myFrac>0){
+    if(barnFinish)bump(barnFinish);
+    (barnSchedule||[]).forEach(e=>{if(e.finishDate)bump(new Date(e.finishDate));});
+  }
+  if(!lastEnd||lastEnd<=today)return null;
+  let ongoing=false;
+  pastureMobs.forEach(m=>(m.supps||[]).forEach(s=>{
+    const mapped=getSilageForSuppType(s.type); if(!mapped||mapped.id!==sil.id)return;
+    if(!s.endDate||new Date(s.endDate)>lastEnd)ongoing=true;
+  }));
+  const horizon=Math.ceil((lastEnd-today)/86400000);
+  let balance=sil.current;
+  for(let d=0;d<horizon;d++){
+    const day=new Date(today.getTime()+d*86400000);
+    let draw=0;
+    paddocks.filter(p=>p.active).forEach(p=>{
+      const finish=p.finishDate?new Date(p.finishDate):null; if(finish&&day>=finish)return;
+      (p.supps||[]).forEach(s=>{
+        const mapped=getSilageForSuppType(s.type); if(!mapped||mapped.id!==sil.id)return;
+        if(s.endDate&&day>=new Date(s.endDate))return;
+        draw+=p.head*s.dmH*freqFactor(s.freq);
+      });
+    });
+    pastureMobs.forEach(m=>{
+      (m.supps||[]).forEach(s=>{
+        const mapped=getSilageForSuppType(s.type); if(!mapped||mapped.id!==sil.id)return;
+        if(s.endDate&&day>=new Date(s.endDate))return;
+        draw+=m.head*s.dmH*freqFactor(s.freq);
+      });
+    });
+    if(myFrac>0&&(!barnFinish||day<barnFinish))draw+=barnDailyTotal*myFrac;
+    if(myFrac>0)(barnSchedule||[]).forEach(e=>{
+      if(!e.startDate||!e.finishDate)return;
+      if(day>=new Date(e.startDate)&&day<new Date(e.finishDate))draw+=e.head*e.dmPerHead*myFrac;
+    });
+    balance-=draw;
+    if(balance<=0)return null;
+  }
+  return {dm:Math.round(balance),endDate:lastEnd.toISOString().slice(0,10),ongoing};
+}
 function renderOverview(){
   // Overview only surfaces an off-track paddock once its crop is actually getting close to running out.
   // Far-out plan shortfalls stay on the Paddocks tab (their card alert) until nearer the time — red under
@@ -2474,6 +2536,7 @@ function renderOverview(){
     const daysR=proj<=150?proj:(silageDraws[s.id]>0?Math.round(s.current/silageDraws[s.id]):null);
     const daysRIsProjected=proj<=151;
     const alertDays=proj<=150?proj:(proj===151?999:daysR);
+    const surplus=proj===151?calcSilageSurplus(s):null;
     const pct=s.opening>0?Math.min(100,(s.current/s.opening)*100):100;
     const drawn=s.opening-s.current;
     const fc=alertDays!==null&&alertDays<14?"fill-danger":alertDays!==null&&alertDays<30?"fill-warn":"fill-sky";
@@ -2509,6 +2572,7 @@ function renderOverview(){
             <div class="stat-sub">${daysRIsProjected?"projected":"at current draw"}</div>
           </div>
         </div>
+        ${surplus?`<div style="margin-top:8px;padding:7px 10px;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;font-size:11.5px;color:#065F46;line-height:1.35">Surplus once draws finish: <b>${fmt(surplus.dm/1000,1)}t DM</b> (~${fmtDate(new Date(surplus.endDate+'T00:00:00'))})${surplus.ongoing?" · small ongoing draw after":""}</div>`:""}
       </div>
     </div>`;
   });
