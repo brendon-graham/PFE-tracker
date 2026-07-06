@@ -9,7 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="12.6.0">
+<meta name="app-version" content="12.6.1">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.6.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.6.1</div>
     </div>
   </div>
   <div class="tabs">
@@ -2601,7 +2601,11 @@ function renderOverview(){
   const targetDate=new Date(yr,8,15);
   const daysToTarget=Math.max(0,Math.ceil((targetDate-TODAY)/86400000));
   // Available
-  const totalSilageDM=silages.reduce((s,i)=>s+i.current,0);
+  // Fodder Beet pit mirrors Woodings crop (its opening/current are derived from Woodings on every load),
+  // so when Woodings is an active crop paddock that beet is already counted in totalCropDM below —
+  // exclude the pit here to avoid double-counting the same beet in Total available.
+  const woodActive=paddocks.some(p=>p.id==='wood'&&p.active);
+  const totalSilageDM=silages.reduce((s,i)=>s+((i.id==='fbeet'&&woodActive)?0:i.current),0);
   const totalCropDM=active.reduce((a,p)=>a+calcP(p).dmRem,0);
   const wgCalc=calcPastureBlock(pastureBlocks.winterGraze);
   const asCalc=calcPastureBlock(pastureBlocks.autumnSaved);
