@@ -121,6 +121,7 @@ function handlePull(ss) {
       weeklyJobs:  readObjectSection(ss, SHEETS.weeklyJobs),
       lastModified:   lmRow ? (lmRow.lastModified   || 0) : 0,
       barnScheduleTs: lmRow ? (lmRow.barnScheduleTs || 0) : 0,
+      altDayShift:    lmRow ? (Number(lmRow.altDayShift) % 2 || 0) : 0,
       syncTime: new Date().toISOString(),
     }
   };
@@ -169,7 +170,9 @@ function handlePush(ss, data, user) {
 
   const lastModified = data.lastModified || Date.now();
   const newBsTs = (inBsTs > curBsTs) ? inBsTs : curBsTs;
-  writeObjectSection(ss, SHEETS.lastModified, { lastModified, pushedBy: userName, ts, barnScheduleTs: newBsTs });
+  const curAltShift = Number((lmRow || {}).altDayShift) % 2 || 0;
+  const newAltShift = (data.altDayShift != null) ? (Number(data.altDayShift) % 2 || 0) : curAltShift;
+  writeObjectSection(ss, SHEETS.lastModified, { lastModified, pushedBy: userName, ts, barnScheduleTs: newBsTs, altDayShift: newAltShift });
   appendSyncLog(ss, { ts: lastModified, user: userName, action: "push", section: "full", key: "" });
 
   return { pushed: ts };

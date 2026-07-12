@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="12.6.2">
+<meta name="app-version" content="12.6.3">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v12.6.2";
+  const APP_VERSION = "pfe-v12.6.3";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.6.2</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.6.3</div>
     </div>
   </div>
   <div class="tabs">
@@ -1319,6 +1319,20 @@ const BUILTIN_SCENARIOS=[
 // Reference date for "every 2nd day" alternating logic
 // Day 0 = 15 May 2026 (first feed day). Even offset = feed day, odd = skip day.
 const ALT_DAY_REF=new Date("2026-05-15"); ALT_DAY_REF.setHours(0,0,0,0);
+// Parity offset for the "Every 2nd day" schedule. 0 = feed on even offsets from ALT_DAY_REF.
+// If a feed happens a day early/late, "Swap feed days" flips this so the app re-syncs to the run.
+// Synced to Sheets (stored in the LastModified meta object) so all phones agree on the run.
+let altDayShift=(Number(localStorage.getItem("pfe5_altdayshift"))||0)%2;
+function isAltFeedDay(){
+  const offset=Math.round((TODAY.getTime()-ALT_DAY_REF.getTime())/86400000);
+  return (offset+altDayShift)%2===0;
+}
+function swapAltDays(){
+  altDayShift=(altDayShift+1)%2;
+  saveAll();
+  renderAll();
+  toast(isAltFeedDay()?"✓ Today is now a feed day":"✓ Today is now a skip day");
+}
 // Barn calculator state (mirrors spreadsheet)
 let barnCalc={
   head:1220,
@@ -1484,6 +1498,7 @@ function saveToLocal(){
     localStorage.setItem("pfe5_pastureblocks",JSON.stringify(pastureBlocks));
     localStorage.setItem("pfe5_ahorders",    JSON.stringify(animalHealthOrders));
     localStorage.setItem("pfe5_stockrec",    JSON.stringify(stockRec));
+    localStorage.setItem("pfe5_altdayshift", String(altDayShift));
   }catch(e){}
 }
 function saveAll(){
@@ -1526,6 +1541,7 @@ async function pushToSheet(){
           pastureBlocks,
           animalHealthOrders,
           stockRec,
+          altDayShift,
           lastModified: thisTs,
         }
       }),
@@ -1568,6 +1584,7 @@ function applyPullData(d){
   if(d.pastureBlocks) pastureBlocks=d.pastureBlocks;
   if(d.animalHealthOrders) animalHealthOrders=d.animalHealthOrders;
   if(d.stockRec && d.stockRec.baseClasses && d.stockRec.baseClasses.length) stockRec=d.stockRec;
+  if(d.altDayShift!=null) altDayShift=Number(d.altDayShift)%2||0;
   // Sync fbeet balance from Woodings remaining crop DM
   {const _w=paddocks.find(p=>p.id==='wood'),_f=silages.find(s=>s.id==='fbeet');
   if(_w&&_f){_f.opening=Math.round(_w.ha*(_w.yield||20000));_f.current=Math.round(Math.max(0,(_w.ha-(_w.used||0))*(_w.yield||20000)));}}
@@ -1626,6 +1643,7 @@ function loadFromLocal(){
     const pb=localStorage.getItem("pfe5_pastureblocks");if(pb) pastureBlocks=JSON.parse(pb);
     const ah=localStorage.getItem("pfe5_ahorders");if(ah) animalHealthOrders=JSON.parse(ah);
     const sr=localStorage.getItem("pfe5_stockrec");if(sr) stockRec=JSON.parse(sr);
+    const ad=localStorage.getItem("pfe5_altdayshift");if(ad!=null) altDayShift=Number(ad)%2||0;
   }catch(e){}
   // Migration: add dmPct to existing silage entries, add Baleage if missing, add silageId to barn feeds
   const SIL_DMPCT_DEFAULTS={bulk:35,lucmz:35,lbeet:24.79,pke:88,peas:85,baleage:38};
@@ -2045,8 +2063,7 @@ function getScenario(id){
 // Returns 0 if no break today, otherwise days of cover this shift must provide
 function getTodayMultiplier(scenarioId){
   if(scenarioId==="2d"){
-    const offset=Math.round((TODAY.getTime()-ALT_DAY_REF.getTime())/86400000);
-    return offset%2===0?2:0; // feed day = 2× cover (today + tomorrow, since no one feeds tomorrow)
+    return isAltFeedDay()?2:0; // feed day = 2× cover (today + tomorrow, since no one feeds tomorrow)
   }
   const sc=getScenario(scenarioId);
   if(!sc||!sc.days)return 1;
@@ -2067,8 +2084,7 @@ function getBreakMetres(p){
 // Next shift description
 function getNextShiftDesc(scenarioId){
   if(scenarioId==="2d"){
-    const offset=Math.round((TODAY.getTime()-ALT_DAY_REF.getTime())/86400000);
-    const daysUntil=offset%2===0?2:1; // if today is feed day next is in 2; if skip day it's tomorrow
+    const daysUntil=isAltFeedDay()?2:1; // if today is feed day next is in 2; if skip day it's tomorrow
     const nextDate=new Date(TODAY.getTime()+daysUntil*86400000);
     const name=DOW_NAMES[nextDate.getDay()];
     return daysUntil===1?"Tomorrow ("+name+")":name+" (in "+daysUntil+"d)";
@@ -2105,7 +2121,6 @@ function renderScenarios(){
     let daysHTML;
     if(sc.id==="2d"){
       // Show computed today status instead of fixed pattern
-      const offset=Math.round((TODAY.getTime()-ALT_DAY_REF.getTime())/86400000);
       daysHTML=dayNames.map((d,i)=>`<div class="day-box no-shift"><div class="day-label">${d}</div><div class="day-mult" style="font-size:11px">alt</div></div>`).join("");
     } else {
       daysHTML=dayNames.map((d,i)=>{
@@ -2115,6 +2130,15 @@ function renderScenarios(){
           <div class="day-mult">${mult>0?mult+"×":"—"}</div>
         </div>`;
       }).join("");
+    }
+    let swapHTML="";
+    if(sc.id==="2d"){
+      const feed=isAltFeedDay();
+      swapHTML=`<div class="freq-info" style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:8px 0 0">
+        <span>Today: <strong>${feed?"Feed day":"Skip day"}</strong> · next feed ${getNextShiftDesc("2d")}</span>
+        <button class="freq-btn" style="flex:0 0 auto" onclick="swapAltDays()">Swap feed days</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Fed a day early or late? Tap Swap to re-sync the run.</div>`;
     }
     html+=`<div class="scenario-card">
       <div class="scenario-header">
@@ -2126,7 +2150,7 @@ function renderScenarios(){
       </div>
       <div class="scenario-body">
         <div class="scenario-days-grid">${daysHTML}</div>
-        <div style="font-size:11px;color:var(--muted)">Green = shift day · number = days of cover that shift provides</div>
+        ${sc.id==="2d"?swapHTML:'<div style="font-size:11px;color:var(--muted)">Green = shift day · number = days of cover that shift provides</div>'}
       </div>
     </div>`;
   });
@@ -3137,8 +3161,7 @@ function renderBreaks(){
         else if(dow===5) freqInfo="3-day break today — covers Fri / Sat / Sun back to Mon";
         else freqInfo=`No break today — next shift ${getNextShiftDesc(scenId)}`;
       }else if(scenId==="2d"){
-        const offset=Math.round((TODAY.getTime()-ALT_DAY_REF.getTime())/86400000);
-        if(offset%2===0) freqInfo="Feed day today — every 2nd day schedule";
+        if(isAltFeedDay()) freqInfo="Feed day today — every 2nd day schedule";
         else freqInfo=`Skip day — next feed ${getNextShiftDesc(scenId)}`;
       }else if(scenId==="daily"){
         freqInfo="Daily break";
