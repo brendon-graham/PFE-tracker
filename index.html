@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="12.6.3">
+<meta name="app-version" content="12.7.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v12.6.3";
+  const APP_VERSION = "pfe-v12.7.0";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.6.3</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.7.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -2857,8 +2857,10 @@ function renderFeedOut(){
     (p.supps||[]).forEach((s,idx)=>{
       if(s.endDate&&new Date(TODAY)>=new Date(s.endDate))return;
       const id=`${p.id}_${idx}`;
-      const todayFeed=isBreakDay(s.freq);
-      const mult=getTodayMultiplier(s.freq); // 0 = not today, 1+ = days of cover
+      const sched=isBreakDay(s.freq);
+      const forced=!sched&&checks[`feedtoday_${id}`]===true; // "Feed today" one-off override
+      const todayFeed=sched||forced;
+      const mult=forced?1:getTodayMultiplier(s.freq); // 0 = not today, 1+ = days of cover; forced off-schedule feed = 1 day
       const dmDay=p.head*s.dmH;
       // DM% comes from the silage inventory (one source of truth); fall back to type defaults
       const defaultDmPct={Baleage:0.38,Beet:0.2479,PKE:0.88,"Bulk Silage":0.35,"Lucerne Silage":0.35,"Silage/Urea/DCP":0.35,Barley:0.86,Peas:0.85,Other:0.35};
@@ -2870,14 +2872,16 @@ function renderFeedOut(){
       const feeders=s.feeders||1;
       const balesDay=s.type==="Baleage"&&sil?.wetPerBale>0?wetDay/sil.wetPerBale:null;
       const balesToday=balesDay!=null&&mult>0?balesDay*mult:null;
-      allItems.push({id,name:p.name,mob:p.stockClass||"",type:s.type,dmDay,wetDay,wetToday,mult,nextMult,freq:s.freq,todayFeed,feeders,balesDay,balesToday,source:"crop",splits:p.splits||null});
+      allItems.push({id,name:p.name,mob:p.stockClass||"",type:s.type,dmDay,wetDay,wetToday,mult,nextMult,freq:s.freq,todayFeed,forced,feeders,balesDay,balesToday,source:"crop",splits:p.splits||null});
     });
   });
   pastureMobs.forEach(m=>{
     (m.supps||[]).forEach((s,idx)=>{
       const id=`pm_${m.id}_${idx}`;
-      const todayFeed=isBreakDay(s.freq);
-      const mult=getTodayMultiplier(s.freq); // 0 = not today
+      const sched=isBreakDay(s.freq);
+      const forced=!sched&&checks[`feedtoday_${id}`]===true; // "Feed today" one-off override
+      const todayFeed=sched||forced;
+      const mult=forced?1:getTodayMultiplier(s.freq); // 0 = not today; forced off-schedule feed = 1 day
       const dmDay=m.head*s.dmH;
       const defaultDmPct={Baleage:0.38,Beet:0.2479,PKE:0.88,"Bulk Silage":0.35,"Lucerne Silage":0.35,"Silage/Urea/DCP":0.35,Barley:0.86,Peas:0.85,Other:0.35};
       const sil=getSilageForSuppType(s.type);
@@ -2888,7 +2892,7 @@ function renderFeedOut(){
       const feeders=s.feeders||1;
       const balesDay=s.type==="Baleage"&&sil?.wetPerBale>0?wetDay/sil.wetPerBale:null;
       const balesToday=balesDay!=null&&mult>0?balesDay*mult:null;
-      allItems.push({id,name:m.name,mob:m.note||"Pasture",type:s.type,dmDay,wetDay,wetToday,mult,nextMult,freq:s.freq,todayFeed,feeders,balesDay,balesToday,source:"pasture"});
+      allItems.push({id,name:m.name,mob:m.note||"Pasture",type:s.type,dmDay,wetDay,wetToday,mult,nextMult,freq:s.freq,todayFeed,forced,feeders,balesDay,balesToday,source:"pasture"});
     });
   });
   // Progress
@@ -2959,15 +2963,17 @@ function renderFeedOut(){
         });
         splitHTML+=`</div>`;
       }
+      const forcedTag=item.forced?`<span class="supp-freq-tag" style="background:var(--straw);color:var(--soil)">Off-schedule feed today${!checked?` · <a onclick="unforceFeedToday('${item.id}')" style="cursor:pointer;text-decoration:underline">undo</a>`:``}</span>`:"";
       cHTML+=`<div class="supp-item ${checked?"done":""}" data-check-id="${item.id}">
         <div class="supp-check ${skip?"skip":checked?"checked":""}" onclick="${skip?"":"toggleCheck('"+item.id+"')"}">${checked?"✓":skip?"—":""}</div>
         <div class="supp-info">
           <div class="supp-name">${item.name}</div>
           <div class="supp-mob">${item.mob}${item.source==="pasture"?` <span style="font-size:9px;background:var(--fog);color:var(--bark);padding:1px 5px;border-radius:8px;font-weight:700">PASTURE MOB</span>`:""}</div>
           ${skip?`<span class="supp-freq-tag">Not today (${sc?.name||item.freq}) · Next: ${getNextShiftDesc(item.freq)}</span>`:item.mult>1&&!isBaleage?`<span class="supp-freq-tag">${item.mult}-day cover · ${sc?.name||item.freq}</span>`:""}
+          ${forcedTag}
           ${splitHTML}
         </div>
-        <div class="supp-qty">${qtyHTML}</div>
+        <div class="supp-qty">${qtyHTML}${skip?`<button class="btn btn-secondary" style="margin-top:8px;padding:9px 12px;min-height:36px;font-size:12px" onclick="forceFeedToday('${item.id}')">Feed today</button>`:""}</div>
       </div>`;
     });
     cHTML+=`</div>`;
@@ -3000,8 +3006,9 @@ function getSuppItemForCheckId(checkId){
     const s=(m.supps||[])[parseInt(pmMatch[2])];
     if(!s)return null;
     const todayFeed=isBreakDay(s.freq);
-    if(!todayFeed)return null;
-    const mult=getTodayMultiplier(s.freq);
+    const forced=!todayFeed&&checks[`feedtoday_${checkId}`]===true;
+    if(!todayFeed&&!forced)return null;
+    const mult=forced?1:getTodayMultiplier(s.freq);
     return{type:s.type,dmTotal:m.head*s.dmH*mult};
   }
   // Crop supplement: split on last underscore
@@ -3014,8 +3021,9 @@ function getSuppItemForCheckId(checkId){
   const s=(p.supps||[])[idx];
   if(!s)return null;
   const todayFeed=isBreakDay(s.freq);
-  if(!todayFeed)return null;
-  const mult=getTodayMultiplier(s.freq);
+  const forced=!todayFeed&&checks[`feedtoday_${checkId}`]===true;
+  if(!todayFeed&&!forced)return null;
+  const mult=forced?1:getTodayMultiplier(s.freq);
   return{type:s.type,dmTotal:p.head*s.dmH*mult};
 }
 function toggleCheck(id){
@@ -3058,6 +3066,23 @@ function toggleCheck(id){
   saveAll();renderFeedOut();
   // Refresh overview silage bars if visible
   if(currentTab==="overview")renderOverview();
+}
+// "Feed today" — one-off override to feed a supplement on a day its schedule skips.
+// Stored in the daily `checks` object so it auto-clears on the next day (see loadAll date reset).
+function forceFeedToday(id){
+  checks[`feedtoday_${id}`]=true;
+  queueChange("checks","daily",checks);
+  saveAll();renderFeedOut();
+  if(currentTab==="overview")renderOverview();
+  toast("Added to today's feed-out");
+}
+function unforceFeedToday(id){
+  if(checks[id])return; // untick first so the silage deduction is reversed before removing the override
+  delete checks[`feedtoday_${id}`];
+  queueChange("checks","daily",checks);
+  saveAll();renderFeedOut();
+  if(currentTab==="overview")renderOverview();
+  toast("Removed from today's feed-out");
 }
 function toggleBarnCheck(){
   const wasChecked=!!checks["barn"];
@@ -3104,14 +3129,18 @@ function saveDailyLog(){
     let tot=0;
     paddocks.filter(p=>p.active).forEach(p=>{
       (p.supps||[]).forEach((s,idx)=>{
-        const mult=getTodayMultiplier(s.freq||"daily");
-        if(s.type===st&&checks[`${p.id}_${idx}`]&&mult>0)tot+=p.head*s.dmH*mult;
+        const id=`${p.id}_${idx}`;
+        const forced=!isBreakDay(s.freq||"daily")&&checks[`feedtoday_${id}`]===true;
+        const mult=forced?1:getTodayMultiplier(s.freq||"daily");
+        if(s.type===st&&checks[id]&&mult>0)tot+=p.head*s.dmH*mult;
       });
     });
     pastureMobs.forEach(m=>{
       (m.supps||[]).forEach((s,idx)=>{
-        const mult=getTodayMultiplier(s.freq||"daily");
-        if(s.type===st&&checks[`pm_${m.id}_${idx}`]&&mult>0)tot+=m.head*s.dmH*mult;
+        const id=`pm_${m.id}_${idx}`;
+        const forced=!isBreakDay(s.freq||"daily")&&checks[`feedtoday_${id}`]===true;
+        const mult=forced?1:getTodayMultiplier(s.freq||"daily");
+        if(s.type===st&&checks[id]&&mult>0)tot+=m.head*s.dmH*mult;
       });
     });
     if(tot>0)entry.suppSummary[st]=tot;
