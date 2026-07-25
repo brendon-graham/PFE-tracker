@@ -132,11 +132,21 @@ function handlePush(ss, data, user) {
   if (!data) throw new Error("Push received empty data payload");
   const userName = user || "Staff";
 
-  // Stale-push guard — reject if incoming lastModified ≤ server's current
+  // Stale-push guard (optimistic concurrency).
+  // baseTs = the Sheet version the client was editing from. Reject when the
+  // Sheet has moved on since then (currentTs > baseTs) — a stale device must
+  // not overwrite a newer write (the 20 Jul 2026 WeeklyJobs corruption).
+  // Legacy clients that don't send baseTs fall back to the weaker
+  // lastModified-vs-current check.
   const lmRow      = readObjectSection(ss, SHEETS.lastModified);
   const currentTs  = lmRow ? Number(lmRow.lastModified || 0) : 0;
+  const baseTs     = Number(data.baseTs || 0);
   const incomingTs = Number(data.lastModified || 0);
-  if (incomingTs > 0 && currentTs > 0 && incomingTs <= currentTs) {
+  if (baseTs > 0) {
+    if (currentTs > baseTs) {
+      return { skipped: "stale", serverTs: currentTs };
+    }
+  } else if (incomingTs > 0 && currentTs > 0 && incomingTs <= currentTs) {
     return { skipped: "stale", serverTs: currentTs };
   }
 

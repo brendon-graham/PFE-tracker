@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="12.7.0">
+<meta name="app-version" content="12.8.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v12.7.0";
+  const APP_VERSION = "pfe-v12.8.0";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.7.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.8.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -1513,11 +1513,53 @@ function saveAll(){
 // no-op stub — delta push removed in v10.0, call sites cleaned up progressively
 function queueChange(){}
 
+// Re-render the sync-affected tabs after a pull. Used by the conflict paths in
+// pushToSheet so an incoming (pulled) state is reflected immediately.
+function renderAfterSync(){
+  renderAll(); renderFlagStrip(); renderWeeklyJobs(); renderBacklogJobs();
+  renderToolboxEditor(); renderToolboxHistory(); renderToolboxAgenda(); renderDiaryTab();
+}
+
+// Cache-busted, no-store GET of the current Sheet state. Returns the parsed
+// data object or null. Used for pre/post-push confirmation reads.
+async function fetchSheetState(){
+  const res = await fetch(SCRIPT_URL + "?action=pull&t=" + Date.now(), {method:"GET", mode:"cors", cache:"no-store"});
+  const json = await res.json();
+  return (json && json.ok && json.data) ? json.data : null;
+}
+
+// Push full state to Sheets with optimistic-concurrency protection.
+//   1. Pre-push freshness check — if the Sheet moved on since our last sync
+//      (server lastModified > our lastSheetsTs), we are BEHIND. Pull the newer
+//      data instead of overwriting it, flag a conflict, and abort the push.
+//      This is what stops a stale device wiping another device's fresh write
+//      (the 20 Jul 2026 WeeklyJobs corruption).
+//   2. Push carries baseTs (the version we are editing from) so the server can
+//      reject a stale write; lastModified is a fresh stamp for this write.
+//   3. Post-push confirmation — no-cors cannot read the POST response, so we
+//      GET the Sheet back and only report success (and advance lastSheetsTs)
+//      when the server's lastModified equals our stamp. Anything else is a
+//      clear FAILED state, never a silent false "Synced".
 async function pushToSheet(){
   if(!SCRIPT_URL) return;
   syncStatus="syncing"; pushInFlight=true; renderSyncBar();
+  const thisTs = Date.now();
   try{
-    const thisTs = Date.now();
+    // ── 1. Pre-push freshness check ──
+    let pre=null;
+    try{ pre = await fetchSheetState(); }catch(_){ pre=null; }
+    if(pre && Number(pre.lastModified||0) > lastSheetsTs){
+      applyPullData(pre);
+      saveToLocal();
+      lastSheetsTs = Number(pre.lastModified);
+      try{ localStorage.setItem('pfe5_lastSheetsTs', String(lastSheetsTs)); }catch(e){}
+      pushInFlight=false; syncPending=false;
+      syncStatus="error"; renderSyncBar();
+      renderAfterSync();
+      toast("⚠ Newer data on another device — pulled it in. Re-check your change and save again.");
+      return;
+    }
+    // ── 2. Push (write-blind via no-cors) ──
     await fetch(SCRIPT_URL, {
       method:"POST",
       mode:"no-cors",
@@ -1542,15 +1584,34 @@ async function pushToSheet(){
           animalHealthOrders,
           stockRec,
           altDayShift,
+          baseTs: lastSheetsTs,
           lastModified: thisTs,
         }
       }),
       headers:{"Content-Type":"text/plain"},
     });
-    syncStatus="ok";
-    lastSheetsTs = thisTs;
-    try{ localStorage.setItem('pfe5_lastSheetsTs', String(lastSheetsTs)); }catch(e){}
-    localStorage.setItem("pfe5_lastSync", new Date().toISOString());
+    // ── 3. Post-push confirmation ──
+    let post=null;
+    try{ post = await fetchSheetState(); }catch(_){ post=null; }
+    if(post && Number(post.lastModified||0) === thisTs){
+      syncStatus="ok";
+      lastSheetsTs = thisTs;
+      try{ localStorage.setItem('pfe5_lastSheetsTs', String(lastSheetsTs)); }catch(e){}
+      localStorage.setItem("pfe5_lastSync", new Date().toISOString());
+    } else if(post){
+      applyPullData(post);
+      saveToLocal();
+      lastSheetsTs = Number(post.lastModified||0);
+      try{ localStorage.setItem('pfe5_lastSheetsTs', String(lastSheetsTs)); }catch(e){}
+      syncStatus="error"; renderSyncBar();
+      renderAfterSync();
+      toast("⚠ Save didn't reach the Sheet — pulled the live version. Re-check and save again.");
+      pushInFlight=false; syncPending=false;
+      return;
+    } else {
+      // Could not confirm (offline / read blocked). Do NOT claim success.
+      syncStatus = navigator.onLine ? "error" : "offline";
+    }
   } catch(e){
     syncStatus = navigator.onLine ? "error" : "offline";
   }
@@ -1593,7 +1654,7 @@ async function pullFromSheet(){
   if(!SCRIPT_URL){ loadFromLocal(); return; }
   syncStatus="syncing"; renderSyncBar();
   try{
-    const res = await fetch(SCRIPT_URL + "?action=pull", {method:"GET", mode:"cors"});
+    const res = await fetch(SCRIPT_URL + "?action=pull&t=" + Date.now(), {method:"GET", mode:"cors", cache:"no-store"});
     const json = await res.json();
     if(json.ok && json.data){
       const d = json.data;
@@ -4090,7 +4151,7 @@ async function liveSyncPoll(){
   if(syncStatus==='syncing' || pushInFlight || syncPending) return;
   if(document.hidden) return;
   try{
-    const res = await fetch(SCRIPT_URL+'?action=pull&t='+Date.now(), {method:'GET',mode:'cors'});
+    const res = await fetch(SCRIPT_URL+'?action=pull&t='+Date.now(), {method:'GET',mode:'cors',cache:'no-store'});
     const json = await res.json();
     if(!json.ok || !json.data) return;
     const d = json.data;
