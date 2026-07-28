@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="12.8.0">
+<meta name="app-version" content="13.0.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v12.8.0";
+  const APP_VERSION = "pfe-v13.0.0";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v12.8.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.0.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -392,11 +392,8 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <button class="tab-btn"         onclick="switchTab('barn')">🏚 Barn</button>
     <button class="tab-btn"         onclick="switchTab('pasture')">🌿 Pasture</button>
     <button class="tab-btn"         onclick="switchTab('jobstodo')">🔧 Jobs</button>
-    <button class="tab-btn"         onclick="switchTab('toolbox')">📝 Toolbox</button>
     <button class="tab-btn"         onclick="switchTab('animalhealth')">🩺 Health</button>
     <button class="tab-btn"         onclick="switchTab('stockrec')">🐑 Stock Rec</button>
-    <button class="tab-btn"         onclick="switchTab('diary')">📓 Diary</button>
-    <button class="tab-btn"         onclick="switchTab('history')">History</button>
   </div>
   <!-- Sync status bar -->
   <div id="sync-status-bar" onclick="openSyncModal()" style="display:flex;align-items:center;gap:8px;padding:6px 14px;background:#6B6560;cursor:pointer;margin:0 -16px"></div>
@@ -448,7 +445,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <div id="fo-pasture-list"></div>
     <button class="btn btn-secondary btn-full btn-sm" style="margin-top:4px" onclick="openAddPastureMob()">+ Add pasture mob</button>
     <div class="sec">End of day</div>
-    <button class="btn btn-secondary btn-full btn-sm" onclick="saveDailyLog()">💾 Save today's log to history</button>
+    <button class="btn btn-secondary btn-full btn-sm" onclick="saveDailyLog()">💾 Save today's log</button>
     <button class="btn btn-secondary btn-full btn-sm" style="margin-top:6px" onclick="generateWeeklySummary()">📄 Generate weekly GM summary</button>
     <button class="btn btn-secondary btn-full btn-sm" style="margin-top:6px;color:var(--danger)" onclick="resetChecks()">Reset all ticks</button>
     <div style="height:70px"></div>
@@ -624,21 +621,6 @@ body.outdoor .supp-qty div{font-size:16px!important}
       <button class="apply-btn" style="background:var(--grass);color:white" onclick="applyMeasurement()">Use this ✓</button>
     </div>
   </div>
-  <!-- HISTORY -->
-  <div id="tab-history" class="tab-panel">
-    <div class="sec" style="margin-top:0">Daily logs</div>
-    <div class="alert-info alert" style="margin-bottom:10px;font-size:12px">📖 Each day's record shows what was planned vs what was ticked off. Save logs from the Feed Out tab.</div>
-    <div class="hist-filter">
-      <div class="chip active" onclick="setHistFilter('all',this)">All</div>
-      <div class="chip" onclick="setHistFilter('supplement',this)">Supplements</div>
-      <div class="chip" onclick="setHistFilter('barn',this)">Barn</div>
-      <div class="chip" onclick="setHistFilter('area',this)">Area updates</div>
-    </div>
-    <div id="history-list"></div>
-    <div class="sec">Summary statistics</div>
-    <div class="card" id="history-stats"></div>
-    <div style="height:70px"></div>
-  </div>
   <!-- ══════════════════════════════════════════════════════════ -->
   <!-- WEEKLY JOBS TAB -->
   <!-- ══════════════════════════════════════════════════════════ -->
@@ -669,27 +651,6 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <div style="height:80px"></div>
   </div>
   <!-- ══════════════════════════════════════════════════════════ -->
-  <!-- TOOLBOX MINUTES TAB -->
-  <!-- ══════════════════════════════════════════════════════════ -->
-  <div id="tab-toolbox" class="tab-panel">
-    <div class="sec" style="margin-bottom:8px">This Week's Agenda</div>
-    <div id="toolbox-agenda"></div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;margin-bottom:10px">
-      <div class="sec" style="margin:0">Toolbox Minutes</div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-sm" id="mic-btn" style="background:var(--danger);color:white" onclick="toggleMeetingMic()">🎙 Record</button>
-        <button class="btn btn-sm btn-secondary" onclick="openNewToolboxMinutes()">+ New</button>
-        <button class="btn btn-sm" style="background:var(--grass);color:white" onclick="saveToolboxMinutes()">Save</button>
-      </div>
-    </div>
-    <div id="mic-panel"></div>
-    <div id="toolbox-minutes-editor"></div>
-    <div class="sec" style="margin-top:16px">Past Minutes</div>
-    <div id="toolbox-minutes-history"></div>
-    <div style="height:80px"></div>
-  </div>
-
-  <!-- ══════════════════════════════════════════════════════════ -->
   <!-- ANIMAL HEALTH TAB -->
   <!-- ══════════════════════════════════════════════════════════ -->
   <div id="tab-animalhealth" class="tab-panel">
@@ -717,31 +678,6 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <div style="height:80px"></div>
   </div>
 
-  <!-- DIARY TAB -->
-  <!-- ══════════════════════════════════════════════════════════ -->
-  <div id="tab-diary" class="tab-panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <div class="sec" style="margin:0">Diary</div>
-      <span id="diary-user-label" style="font-size:12px;color:var(--muted)"></span>
-    </div>
-    <div style="background:var(--card);border-radius:10px;padding:14px;margin-bottom:16px">
-      <select id="diary-cat-select" style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;margin-bottom:10px">
-        <option value="stock">Stock</option>
-        <option value="feed">Feed</option>
-        <option value="maintenance">Maintenance</option>
-        <option value="safety">⚠ Safety</option>
-        <option value="planning">Planning</option>
-        <option value="weather">Weather</option>
-        <option value="other">Other</option>
-      </select>
-      <textarea id="diary-notes-input" placeholder="Write your note… (voice input works here)" rows="4"
-        style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:14px;resize:vertical;box-sizing:border-box;font-family:inherit;display:block"></textarea>
-      <button onclick="saveDiaryEntry()" style="margin-top:8px;width:100%;padding:10px;background:var(--grass);color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Save Entry</button>
-    </div>
-    <div class="sec">This week's entries</div>
-    <div id="diary-list"></div>
-    <div style="height:80px"></div>
-  </div>
 </div>
 <button class="add-fab" onclick="onFabClick()" id="fab-add"><span id="fab-icon">+</span></button>
 <button class="claude-fab" onclick="openClaudeDrawer()" title="Ask Claude">🤖</button>
@@ -1453,6 +1389,38 @@ let lastSheetsTs = Number(localStorage.getItem('pfe5_lastSheetsTs') || 0);
 let barnScheduleTs = Number(localStorage.getItem('pfe5_barnscheduleTs') || 0);
 let pushInFlight = false;
 const SYNC_DEBOUNCE_MS = 1500;
+// ── Sync v13 — server-authoritative version + section-level push ───────
+let lastVersion   = Number(localStorage.getItem('pfe5_lastVersion') || 0);
+let serverIsLegacy = false;          // set on pull: old server (no version field) → fall back to full-blob push
+let retryTimer = null, retryDelay = 0;
+let syncedSnapshot = (()=>{ try{ return JSON.parse(localStorage.getItem('pfe5_syncsnap')||'{}'); }catch(e){ return {}; } })();
+// The sections the server persists. Push ONLY the ones that changed, so a phone
+// editing one tab can never clobber another phone's untouched tab.
+const SYNC_SECTIONS = {
+  paddocks:()=>paddocks, silages:()=>silages, pastureMobs:()=>pastureMobs,
+  scenarios:()=>customScenarios, dailyLogs:()=>dailyLogs, backlogJobs:()=>backlogJobs,
+  weeklyCompletedArchive:()=>weeklyCompletedArchive, toolboxMinutesList:()=>toolboxMinutesList,
+  barnSchedule:()=>barnSchedule, pastureBlocks:()=>pastureBlocks, barnCalc:()=>barnCalc,
+  checks:()=>({checks, date:checksDate}), weeklyJobs:()=>weeklyJobs,
+  stockRec:()=>stockRec, animalHealthOrders:()=>animalHealthOrders,
+};
+const SYNC_SCALARS = { altDayShift:()=>altDayShift, barnScheduleTs:()=>barnScheduleTs };
+function _secVal(k){ return JSON.stringify(SYNC_SECTIONS[k]()); }
+function _scalVal(k){ return String(SYNC_SCALARS[k]()); }
+function persistSnapshot(){ try{ localStorage.setItem('pfe5_syncsnap', JSON.stringify(syncedSnapshot)); }catch(e){} }
+// Dirty = differs from the value we last confirmed on the server. No snapshot
+// entry ⇒ NOT dirty (first sync lets the server win, never blocks the pull).
+function dirtySections(){ return Object.keys(SYNC_SECTIONS).filter(k=> syncedSnapshot[k]!==undefined && _secVal(k)!==syncedSnapshot[k]); }
+function dirtyScalars(){  return Object.keys(SYNC_SCALARS ).filter(k=> syncedSnapshot['#'+k]!==undefined && _scalVal(k)!==syncedSnapshot['#'+k]); }
+// Adopt server-confirmed values for the given section keys (default all) + scalars.
+function captureSnapshot(keys, scalars){
+  (keys||Object.keys(SYNC_SECTIONS)).forEach(k=> syncedSnapshot[k]=_secVal(k));
+  (scalars||Object.keys(SYNC_SCALARS)).forEach(k=> syncedSnapshot['#'+k]=_scalVal(k));
+  persistSnapshot();
+}
+function schedulePush(ms){ clearTimeout(syncTimer); syncTimer=setTimeout(pushToSheet, ms==null?SYNC_DEBOUNCE_MS:ms); }
+function scheduleRetry(){ retryDelay = retryDelay ? Math.min(retryDelay*2, 30000) : 2000; clearTimeout(retryTimer); retryTimer=setTimeout(pushToSheet, retryDelay); }
+window.addEventListener('online', ()=>{ if(SCRIPT_URL && (dirtySections().length || dirtyScalars().length)) pushToSheet(); });
 function setSyncUrl(url, name){
   SCRIPT_URL = url.trim();
   syncUserName = name.trim() || "Staff";
@@ -1540,7 +1508,72 @@ async function fetchSheetState(){
 //      GET the Sheet back and only report success (and advance lastSheetsTs)
 //      when the server's lastModified equals our stamp. Anything else is a
 //      clear FAILED state, never a silent false "Synced".
+// Dispatch: new server → section push; old server (detected on pull) → full-blob legacy push.
 async function pushToSheet(){
+  if(!SCRIPT_URL) return;
+  if(pushInFlight){ syncPending=true; return; }
+  return serverIsLegacy ? pushLegacy() : pushSectioned();
+}
+
+// v13 push — sends only changed sections, reads the server's accept/reject
+// response directly (CORS simple request), merges anything it was behind on,
+// and never discards a local edit on failure (dirty stays dirty → retried).
+async function pushSectioned(){
+  const dSecs = dirtySections(), dScal = dirtyScalars();
+  if(!dSecs.length && !dScal.length){ syncStatus="ok"; renderSyncBar(); return; }
+  syncStatus="syncing"; pushInFlight=true; renderSyncBar();
+  const sections={}, snapSend={};
+  dSecs.forEach(k=>{ const v=SYNC_SECTIONS[k](); sections[k]=v; snapSend[k]=JSON.stringify(v); });
+  const scalSend={}; Object.keys(SYNC_SCALARS).forEach(k=> scalSend['#'+k]=_scalVal(k));
+  try{
+    const res = await fetch(SCRIPT_URL, {
+      method:"POST", mode:"cors", cache:"no-store",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body: JSON.stringify({
+        action:"push", user:syncUserName, baseVersion:lastVersion,
+        sections, barnScheduleTs, altDayShift,
+      }),
+    });
+    const json = await res.json();
+    if(json && json.ok && json.accepted){
+      lastVersion = Number(json.version) || lastVersion;
+      try{ localStorage.setItem('pfe5_lastVersion', String(lastVersion)); }catch(e){}
+      if(json.lastModified){ lastSheetsTs=Number(json.lastModified); try{ localStorage.setItem('pfe5_lastSheetsTs', String(lastSheetsTs)); }catch(e){} }
+      // Confirm exactly what we sent — snapshot the sent value, so edits made
+      // DURING the push stay dirty and get pushed next round (no lost edits).
+      dSecs.forEach(k=> syncedSnapshot[k]=snapSend[k]);
+      Object.keys(scalSend).forEach(k=> syncedSnapshot[k]=scalSend[k]);
+      if(json.serverData) mergeServerData(json.serverData);   // we were behind — merge others' sections in
+      persistSnapshot();
+      try{ localStorage.setItem("pfe5_lastSync", new Date().toISOString()); }catch(e){}
+      syncStatus="ok"; retryDelay=0;
+    } else if(json && json.ok===false && /payload|Unknown action|sections/i.test(json.error||"")){
+      // Old server that doesn't understand section pushes — switch to legacy for good.
+      serverIsLegacy=true; pushInFlight=false; return pushLegacy();
+    } else {
+      syncStatus="error"; scheduleRetry();   // locked / rejected — keep dirty, retry
+    }
+  }catch(e){
+    syncStatus = navigator.onLine ? "error" : "offline";
+    scheduleRetry();
+  }
+  pushInFlight=false; renderSyncBar();
+  if(syncStatus==="ok" && (dirtySections().length || dirtyScalars().length)) schedulePush(400);
+}
+
+// Merge a full server snapshot in after a "behind" push — but NEVER over a
+// section we still hold unpushed edits for.
+function mergeServerData(d){
+  const skip = new Set([...dirtySections(), ...dirtyScalars()]);
+  applyPullData(d, skip);
+  saveToLocal();
+  Object.keys(SYNC_SECTIONS).forEach(k=>{ if(!skip.has(k)) syncedSnapshot[k]=_secVal(k); });
+  Object.keys(SYNC_SCALARS ).forEach(k=>{ if(!skip.has(k)) syncedSnapshot['#'+k]=_scalVal(k); });
+  renderAfterSync();
+}
+
+// Legacy full-blob push (v12.8.0) — used only against an un-redeployed server.
+async function pushLegacy(){
   if(!SCRIPT_URL) return;
   syncStatus="syncing"; pushInFlight=true; renderSyncBar();
   const thisTs = Date.now();
@@ -1619,33 +1652,36 @@ async function pushToSheet(){
   syncPending = false;
   renderSyncBar();
 }
-function applyPullData(d){
-  if(d.paddocks    && d.paddocks.length)    paddocks    = d.paddocks;
-  if(d.silages     && d.silages.length)     silages     = d.silages;
-  if(d.pastureMobs && d.pastureMobs.length) pastureMobs = d.pastureMobs;
-  if(d.barnCalc){
+// skip = section/scalar keys with unpushed local edits — never overwrite those.
+function applyPullData(d, skip){
+  skip = skip || new Set();
+  const keep = k => !skip.has(k);
+  if(keep('paddocks')    && d.paddocks    && d.paddocks.length)    paddocks    = d.paddocks;
+  if(keep('silages')     && d.silages     && d.silages.length)     silages     = d.silages;
+  if(keep('pastureMobs') && d.pastureMobs && d.pastureMobs.length) pastureMobs = d.pastureMobs;
+  if(keep('barnCalc') && d.barnCalc){
     barnCalc=d.barnCalc;
     const _smap={"lucerne silage":"lucmz","pasture silage":"bulk","lifting beet":"lbeet","maize silage":"lucmz"};
     (barnCalc.feeds||[]).forEach(f=>{f.silageId=_smap[(f.name||'').toLowerCase()]||null;});
   }
-  if(d.scenarios   && d.scenarios.length)   customScenarios = d.scenarios;
-  if(d.dailyLogs   && d.dailyLogs.length)   dailyLogs   = d.dailyLogs;
-  if(d.checks && d.checks.date === TODAY.toISOString().slice(0,10)){
+  if(keep('scenarios') && d.scenarios   && d.scenarios.length)   customScenarios = d.scenarios;
+  if(keep('dailyLogs') && d.dailyLogs   && d.dailyLogs.length)   dailyLogs   = d.dailyLogs;
+  if(keep('checks') && d.checks && d.checks.date === TODAY.toISOString().slice(0,10)){
     checks = d.checks.checks || {};
     checksDate = d.checks.date;
   }
-  if(d.weeklyJobs)                           weeklyJobs               = d.weeklyJobs;
-  if(d.backlogJobs && d.backlogJobs.length)  backlogJobs              = d.backlogJobs;
-  if(d.weeklyCompletedArchive)               weeklyCompletedArchive   = d.weeklyCompletedArchive;
-  if(d.toolboxMinutesList && d.toolboxMinutesList.length) toolboxMinutesList = d.toolboxMinutesList;
+  if(keep('weeklyJobs') && d.weeklyJobs)                           weeklyJobs               = d.weeklyJobs;
+  if(keep('backlogJobs') && d.backlogJobs && d.backlogJobs.length)  backlogJobs              = d.backlogJobs;
+  if(keep('weeklyCompletedArchive') && d.weeklyCompletedArchive)    weeklyCompletedArchive   = d.weeklyCompletedArchive;
+  if(keep('toolboxMinutesList') && d.toolboxMinutesList && d.toolboxMinutesList.length) toolboxMinutesList = d.toolboxMinutesList;
   if(d.diary            && d.diary.length)            diary            = d.diary;
   if(d.pendingAgenda    && d.pendingAgenda.length)    pendingAgenda    = d.pendingAgenda;
   if(d.measureHistory)                                measureHistory   = d.measureHistory;
-  if(d.barnSchedule){barnSchedule=d.barnSchedule;if(d.barnScheduleTs)barnScheduleTs=d.barnScheduleTs;}
-  if(d.pastureBlocks) pastureBlocks=d.pastureBlocks;
-  if(d.animalHealthOrders) animalHealthOrders=d.animalHealthOrders;
-  if(d.stockRec && d.stockRec.baseClasses && d.stockRec.baseClasses.length) stockRec=d.stockRec;
-  if(d.altDayShift!=null) altDayShift=Number(d.altDayShift)%2||0;
+  if(keep('barnSchedule') && d.barnSchedule){barnSchedule=d.barnSchedule;if(keep('barnScheduleTs') && d.barnScheduleTs)barnScheduleTs=d.barnScheduleTs;}
+  if(keep('pastureBlocks') && d.pastureBlocks) pastureBlocks=d.pastureBlocks;
+  if(keep('animalHealthOrders') && d.animalHealthOrders) animalHealthOrders=d.animalHealthOrders;
+  if(keep('stockRec') && d.stockRec && d.stockRec.baseClasses && d.stockRec.baseClasses.length) stockRec=d.stockRec;
+  if(keep('altDayShift') && d.altDayShift!=null) altDayShift=Number(d.altDayShift)%2||0;
   // Sync fbeet balance from Woodings remaining crop DM
   {const _w=paddocks.find(p=>p.id==='wood'),_f=silages.find(s=>s.id==='fbeet');
   if(_w&&_f){_f.opening=Math.round(_w.ha*(_w.yield||20000));_f.current=Math.round(Math.max(0,(_w.ha-(_w.used||0))*(_w.yield||20000)));}}
@@ -1658,10 +1694,20 @@ async function pullFromSheet(){
     const json = await res.json();
     if(json.ok && json.data){
       const d = json.data;
-      applyPullData(d);
+      // Protect any unsynced local edits from being overwritten by the pull.
+      const skip = new Set([...dirtySections(), ...dirtyScalars()]);
+      applyPullData(d, skip);
       saveToLocal();
       syncStatus="ok";
+      serverIsLegacy = (d.version === undefined || d.version === null);
+      if(!serverIsLegacy){ lastVersion = Number(d.version) || 0; try{ localStorage.setItem('pfe5_lastVersion', String(lastVersion)); }catch(e){} }
       if(d.lastModified){ lastSheetsTs = d.lastModified; try{localStorage.setItem('pfe5_lastSheetsTs', String(lastSheetsTs));}catch(e){} }
+      // Adopt server-confirmed values for what we accepted; leave dirty sections
+      // stale so they stay dirty and get pushed. Then flush them.
+      Object.keys(SYNC_SECTIONS).forEach(k=>{ if(!skip.has(k)) syncedSnapshot[k]=_secVal(k); });
+      Object.keys(SYNC_SCALARS ).forEach(k=>{ if(!skip.has(k)) syncedSnapshot['#'+k]=_scalVal(k); });
+      persistSnapshot();
+      if(skip.size && SCRIPT_URL) schedulePush(600);
     } else {
       syncStatus="error";
       loadFromLocal();
@@ -1774,9 +1820,6 @@ function renderAll(){
   if(t==="barn")      {renderBarnCalc();renderBarnMixHistory();}
   if(t==="pasture")   renderPastureBlocks();
   if(t==="breaks")    renderBreaks();
-  if(t==="history")   renderHistory();
-  if(t==="diary")     renderDiaryTab();
-  if(t==="toolbox")   {renderToolboxAgenda();}
   if(t==="animalhealth") renderAnimalHealth();
   if(t==="stockrec")  renderStockRec();
 }
@@ -2383,7 +2426,7 @@ function closeModal(id){document.getElementById(id).classList.remove("open");}
 // TABS
 // ══════════════════════════════════════════════════════════
 let currentTab="overview";
-const TAB_NAMES=["overview","weeklyjobs","feedout","breaks","paddocks","barn","pasture","jobstodo","toolbox","animalhealth","stockrec","diary","history"];
+const TAB_NAMES=["overview","weeklyjobs","feedout","breaks","paddocks","barn","pasture","jobstodo","animalhealth","stockrec"];
 function switchTab(t){
   document.querySelectorAll(".tab-panel").forEach(el=>{el.classList.remove("active");el.style.display="none";});
   document.querySelectorAll(".tab-btn").forEach((btn,i)=>{btn.classList.remove("active");if(TAB_NAMES[i]===t)btn.classList.add("active");});
@@ -2392,7 +2435,7 @@ function switchTab(t){
     if(t==="measure"){panel.style.display="flex";panel.classList.add("active");setTimeout(()=>{if(map)map.invalidateSize();},150);}
     else{panel.style.display="block";panel.classList.add("active");}
   }
-  document.getElementById("fab-add").style.display=(t==="measure"||t==="history"||t==="barn"||t==="pasture"||t==="diary"||t==="animalhealth"||t==="stockrec")?"none":"flex";
+  document.getElementById("fab-add").style.display=(t==="measure"||t==="barn"||t==="pasture"||t==="animalhealth"||t==="stockrec")?"none":"flex";
   currentTab=t;
   if(t==="overview")  renderOverview();
   if(t==="paddocks")  renderPaddocks();
@@ -2400,9 +2443,6 @@ function switchTab(t){
   if(t==="barn")      {renderBarnCalc();renderBarnMixHistory();}
   if(t==="pasture")   renderPastureBlocks();
   if(t==="breaks")    renderBreaks();
-  if(t==="history")   renderHistory();
-  if(t==="diary")     renderDiaryTab();
-  if(t==="toolbox")   renderToolboxAgenda();
   if(t==="animalhealth") renderAnimalHealth();
   if(t==="stockrec")  renderStockRec();
 }
@@ -3379,6 +3419,7 @@ function setHistFilter(f,el){
   renderHistory();
 }
 function renderHistory(){
+  if(!document.getElementById("history-list")) return; // History tab removed — logs sync to the Brain journal
   if(!dailyLogs.length){
     document.getElementById("history-list").innerHTML=`<div class="empty-state">No history yet — save today's feed-out from the Feed Out tab at end of day</div>`;
     document.getElementById("history-stats").innerHTML=`<div class="card-body" style="color:var(--muted);font-size:13px">Stats will appear once logs are saved</div>`;
@@ -5649,6 +5690,7 @@ function removeStockMovement(id){
   renderStockRec();
 }
 function renderDiaryTab(){
+  if(!document.getElementById("diary-list")) return; // Diary tab removed
   const lbl=document.getElementById("diary-user-label");
   if(lbl) lbl.textContent=syncUserName;
   const list=document.getElementById("diary-list");

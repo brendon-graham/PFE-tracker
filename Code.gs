@@ -23,6 +23,8 @@ const SHEETS = {
   barnCalc:    "BarnCalc",
   checks:      "Checks",
   weeklyJobs:  "WeeklyJobs",
+  stockRec:    "StockRec",
+  animalHealthOrders: "AnimalHealthOrders",
   // Infrastructure
   lastModified: "LastModified",
   syncLog:      "SyncLog",
@@ -44,6 +46,32 @@ const DELTA_SECTION_MAP = {
 
 // Sections that store a single object (not an array of records)
 const OBJECT_SECTIONS = new Set(["barncalc", "checks"]);
+
+// ── Sync v13 — section-level push (client section key → sheet tab) ─────
+// Authoritative list of server-persisted sections. Client sends only the
+// sections it changed; the server writes only those, never touching the rest.
+const SECTION_SHEETS = {
+  paddocks:               "Paddocks",
+  silages:                "Silages",
+  pastureMobs:            "PastureMobs",
+  scenarios:              "Scenarios",
+  dailyLogs:              "DailyLogs",
+  backlogJobs:            "BacklogJobs",
+  weeklyCompletedArchive: "WeeklyArchive",
+  toolboxMinutesList:     "ToolboxMinutes",
+  barnSchedule:           "BarnSchedule",
+  pastureBlocks:          "PastureBlocks",
+  barnCalc:               "BarnCalc",
+  checks:                 "Checks",
+  weeklyJobs:             "WeeklyJobs",
+  stockRec:               "StockRec",
+  animalHealthOrders:     "AnimalHealthOrders",
+};
+// Section keys that store an array of records (rest are single objects).
+const SECTION_ARRAY = new Set([
+  "paddocks", "silages", "pastureMobs", "scenarios", "dailyLogs",
+  "backlogJobs", "weeklyCompletedArchive", "toolboxMinutesList", "barnSchedule",
+]);
 
 // SyncLog retention — drop entries older than this
 const SYNCLOG_RETAIN_DAYS = 30;
@@ -83,7 +111,11 @@ function doPost(e) {
     const body = JSON.parse(e.postData.contents);
 
     switch (body.action) {
-      case "push":      return respond({ ok: true, ...handlePush(ss, body.data, body.user) });
+      case "push":
+        // Sync v13: section-level push (only changed sections). Legacy full-blob
+        // pushes (body.data, no body.sections) still route to handlePush unchanged.
+        if (body.sections) return respond({ ok: true, ...handleSectionPush(ss, body) });
+        return respond({ ok: true, ...handlePush(ss, body.data, body.user) });
       case "pushDelta": return respond({ ok: true, ...handlePushDelta(ss, body.changes, body.user) });
       case "pull":      return respond({ ok: true, ...handlePull(ss) });
       case "init":      return respond({ ok: true, ...handleInit(ss) });
@@ -119,7 +151,10 @@ function handlePull(ss) {
       barnCalc:    readObjectSection(ss, SHEETS.barnCalc),
       checks:      readObjectSection(ss, SHEETS.checks),
       weeklyJobs:  readObjectSection(ss, SHEETS.weeklyJobs),
+      stockRec:           readObjectSection(ss, SHEETS.stockRec),
+      animalHealthOrders: readObjectSection(ss, SHEETS.animalHealthOrders),
       lastModified:   lmRow ? (lmRow.lastModified   || 0) : 0,
+      version:        lmRow ? (Number(lmRow.version) || 0) : 0,
       barnScheduleTs: lmRow ? (lmRow.barnScheduleTs || 0) : 0,
       altDayShift:    lmRow ? (Number(lmRow.altDayShift) % 2 || 0) : 0,
       syncTime: new Date().toISOString(),
@@ -131,6 +166,11 @@ function handlePull(ss) {
 function handlePush(ss, data, user) {
   if (!data) throw new Error("Push received empty data payload");
   const userName = user || "Staff";
+
+  // Serialise the read-modify-write so two pushes can't interleave.
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); } catch (e) { return { skipped: "locked" }; }
+  try {
 
   // Stale-push guard (optimistic concurrency).
   // baseTs = the Sheet version the client was editing from. Reject when the
@@ -177,15 +217,90 @@ function handlePush(ss, data, user) {
     }
   }
   if (data.dailyLogs)   mergeDailyLogs(ss, data.dailyLogs);
+  if (data.stockRec)           writeObjectSection(ss, SHEETS.stockRec,           data.stockRec);
+  if (data.animalHealthOrders) writeObjectSection(ss, SHEETS.animalHealthOrders, data.animalHealthOrders);
 
+  // lastModified stays echoed from the client so v12.8.0 clients' post-push
+  // confirmation still matches. version is server-authoritative and advances
+  // on every accepted write so v13 clients see the change.
   const lastModified = data.lastModified || Date.now();
+  const newVersion   = Number((lmRow || {}).version || 0) + 1;
   const newBsTs = (inBsTs > curBsTs) ? inBsTs : curBsTs;
   const curAltShift = Number((lmRow || {}).altDayShift) % 2 || 0;
   const newAltShift = (data.altDayShift != null) ? (Number(data.altDayShift) % 2 || 0) : curAltShift;
-  writeObjectSection(ss, SHEETS.lastModified, { lastModified, pushedBy: userName, ts, barnScheduleTs: newBsTs, altDayShift: newAltShift });
+  writeObjectSection(ss, SHEETS.lastModified, { lastModified, version: newVersion, pushedBy: userName, ts, barnScheduleTs: newBsTs, altDayShift: newAltShift });
   appendSyncLog(ss, { ts: lastModified, user: userName, action: "push", section: "full", key: "" });
 
-  return { pushed: ts };
+  return { pushed: ts, version: newVersion };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ── Sync v13 — section-level push ─────────────────────────────────────
+// Writes ONLY the sections the client changed, so a phone editing one tab can
+// never clobber another phone's untouched tab. version is server-authoritative
+// (no device clock), and the lock makes the read-modify-write atomic.
+function handleSectionPush(ss, body) {
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(15000); } catch (e) { return { accepted: false, reason: "locked" }; }
+  try {
+    const userName    = body.user || "Staff";
+    const sections    = body.sections || {};
+    const baseVersion = Number(body.baseVersion || 0);
+    const lmRow          = readObjectSection(ss, SHEETS.lastModified) || {};
+    const currentVersion = Number(lmRow.version || 0);
+
+    // Apply each provided section. Sections not present are left untouched.
+    const applied = [];
+    Object.keys(sections).forEach(function (key) {
+      if (!SECTION_SHEETS[key]) { logError("handleSectionPush", new Error("Unknown section: " + key)); return; }
+      applySection(ss, key, sections[key]);
+      applied.push(key);
+    });
+
+    // Scalars that ride alongside sections (monotonic guards preserved).
+    let newBsTs = Number(lmRow.barnScheduleTs || 0);
+    if (body.barnScheduleTs != null && Number(body.barnScheduleTs) > newBsTs) newBsTs = Number(body.barnScheduleTs);
+    let newAltShift = Number(lmRow.altDayShift) % 2 || 0;
+    if (body.altDayShift != null) newAltShift = Number(body.altDayShift) % 2 || 0;
+
+    const newVersion = currentVersion + 1;
+    const nowMs      = Date.now();
+    writeObjectSection(ss, SHEETS.lastModified, {
+      lastModified: nowMs, version: newVersion, pushedBy: userName,
+      ts: new Date().toISOString(), barnScheduleTs: newBsTs, altDayShift: newAltShift,
+    });
+    appendSyncLog(ss, { ts: nowMs, user: userName, action: "sectionPush", section: applied.join("+"), key: "" });
+
+    const resp = { accepted: true, version: newVersion, lastModified: nowMs, pushedBy: userName, applied: applied };
+    // Client was behind — hand back the full current state so it can merge in
+    // whatever else changed. Its own just-pushed sections stay local-authoritative.
+    if (baseVersion > 0 && baseVersion < currentVersion) {
+      resp.behind    = true;
+      resp.serverData = handlePull(ss).data;
+    }
+    return resp;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Write one section by its client key. Array vs object vs merge-append is
+// decided by config so the sectioned path matches the legacy full-push exactly.
+function applySection(ss, key, value) {
+  const sheetName = SECTION_SHEETS[key];
+  if (!sheetName) return;
+  if (key === "dailyLogs")     { mergeDailyLogs(ss, value); return; }
+  if (key === "pastureBlocks") {
+    // Stale-guard on _ts so an out-of-date phone can't roll it back.
+    const curTs = Number((readObjectSection(ss, sheetName) || {})._ts || 0);
+    const inTs  = Number((value || {})._ts || 0);
+    if (!(inTs > 0 && curTs > 0 && inTs <= curTs)) writeObjectSection(ss, sheetName, value);
+    return;
+  }
+  if (SECTION_ARRAY.has(key)) writeArraySection(ss, sheetName, value);
+  else                        writeObjectSection(ss, sheetName, value);
 }
 
 // ── Delta push — applies only changed fields ──────────────────────────
