@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="13.0.0">
+<meta name="app-version" content="13.1.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v13.0.0";
+  const APP_VERSION = "pfe-v13.1.0";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.0.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.1.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -1328,11 +1328,12 @@ let customScenarios=[];
 let editingScenarioId=null;
 let checks={};
 let checksDate="";
+let checksTimes={}; // per-key ms timestamp for LWW tick merge (v13.1)
 let measureHistory={};
 let dailyLogs=[];
 let editingId=null,editingSilId=null,editingPmId=null,pendingPaddockId=null;
 // New data stores declared here so saveAll/loadFromLocal can reference them safely
-let weeklyJobs = { template: {}, ticks: {}, weekStart: "" };
+let weeklyJobs = { template: {}, ticks: {}, tickTimes: {}, weekStart: "" };
 let backlogJobs = [];
 let weeklyCompletedArchive = [];
 let toolboxMinutesList = [];
@@ -1401,7 +1402,7 @@ const SYNC_SECTIONS = {
   scenarios:()=>customScenarios, dailyLogs:()=>dailyLogs, backlogJobs:()=>backlogJobs,
   weeklyCompletedArchive:()=>weeklyCompletedArchive, toolboxMinutesList:()=>toolboxMinutesList,
   barnSchedule:()=>barnSchedule, pastureBlocks:()=>pastureBlocks, barnCalc:()=>barnCalc,
-  checks:()=>({checks, date:checksDate}), weeklyJobs:()=>weeklyJobs,
+  checks:()=>({checks, date:checksDate, times:checksTimes}), weeklyJobs:()=>weeklyJobs,
   stockRec:()=>stockRec, animalHealthOrders:()=>animalHealthOrders,
 };
 const SYNC_SCALARS = { altDayShift:()=>altDayShift, barnScheduleTs:()=>barnScheduleTs };
@@ -1417,6 +1418,29 @@ function captureSnapshot(keys, scalars){
   (keys||Object.keys(SYNC_SECTIONS)).forEach(k=> syncedSnapshot[k]=_secVal(k));
   (scalars||Object.keys(SYNC_SCALARS)).forEach(k=> syncedSnapshot['#'+k]=_scalVal(k));
   persistSnapshot();
+}
+// ── Tick-map LWW merge (v13.1) ────────────────────────────────────────
+// checks (Feed Out + Breaks + barn) and weeklyJobs.ticks are shared per-day
+// maps several phones tick at once. Each tick key carries a ms timestamp so the
+// two sides MERGE per key (newest action wins) instead of one phone's whole-
+// object push wiping another phone's ticks. A key present in `times` but absent
+// from `vals` is a tombstone (a delete) so un-ticks propagate too.
+function stampCheck(k){ checksTimes[k]=Date.now(); }
+function stampWeekly(k){ if(!weeklyJobs.tickTimes) weeklyJobs.tickTimes={}; weeklyJobs.tickTimes[k]=Date.now(); }
+function mergeTickMaps(valsA, timesA, valsB, timesB){
+  valsA=valsA||{}; timesA=timesA||{}; valsB=valsB||{}; timesB=timesB||{};
+  const vals={}, times={};
+  const keys=new Set([...Object.keys(timesA),...Object.keys(timesB),...Object.keys(valsA),...Object.keys(valsB)]);
+  keys.forEach(k=>{
+    const ta=Number(timesA[k]||0), tb=Number(timesB[k]||0);
+    // Newer stamp wins; on a tie prefer the side that HAS the key (a tick shows
+    // over an equal-time tombstone), else keep A.
+    const useB = tb>ta ? true : ta>tb ? false : (k in valsB && !(k in valsA));
+    const sv=useB?valsB:valsA, st=useB?timesB:timesA;
+    const t=Number(st[k]||0); if(t) times[k]=t;
+    if(k in sv) vals[k]=sv[k];   // else tombstone — key stays deleted
+  });
+  return {vals, times};
 }
 function schedulePush(ms){ clearTimeout(syncTimer); syncTimer=setTimeout(pushToSheet, ms==null?SYNC_DEBOUNCE_MS:ms); }
 function scheduleRetry(){ retryDelay = retryDelay ? Math.min(retryDelay*2, 30000) : 2000; clearTimeout(retryTimer); retryTimer=setTimeout(pushToSheet, retryDelay); }
@@ -1449,7 +1473,7 @@ function saveToLocal(){
     localStorage.setItem("pfe5_silages",     JSON.stringify(silages));
     localStorage.setItem("pfe5_pasturemobs", JSON.stringify(pastureMobs));
     localStorage.setItem("pfe5_meashistory", JSON.stringify(measureHistory));
-    localStorage.setItem("pfe5_checks",      JSON.stringify({checks,date:checksDate}));
+    localStorage.setItem("pfe5_checks",      JSON.stringify({checks,date:checksDate,times:checksTimes}));
     localStorage.setItem("pfe5_dailylogs",   JSON.stringify(dailyLogs));
     localStorage.setItem("pfe5_barncalc",    JSON.stringify(barnCalc));
     localStorage.setItem("pfe5_scenarios",   JSON.stringify(customScenarios));
@@ -1557,7 +1581,7 @@ async function pushSectioned(){
     syncStatus = navigator.onLine ? "error" : "offline";
     scheduleRetry();
   }
-  pushInFlight=false; renderSyncBar();
+  pushInFlight=false; syncPending=false; renderSyncBar();
   if(syncStatus==="ok" && (dirtySections().length || dirtyScalars().length)) schedulePush(400);
 }
 
@@ -1666,11 +1690,26 @@ function applyPullData(d, skip){
   }
   if(keep('scenarios') && d.scenarios   && d.scenarios.length)   customScenarios = d.scenarios;
   if(keep('dailyLogs') && d.dailyLogs   && d.dailyLogs.length)   dailyLogs   = d.dailyLogs;
-  if(keep('checks') && d.checks && d.checks.date === TODAY.toISOString().slice(0,10)){
-    checks = d.checks.checks || {};
-    checksDate = d.checks.date;
+  // checks + weeklyJobs.ticks always MERGE per key (LWW) — never skipped, so a
+  // local unpushed tick and a remote tick both survive (v13.1).
+  if(d.checks){
+    const _today=TODAY.toISOString().slice(0,10);
+    if(d.checks.date===_today && checksDate===_today){
+      const m=mergeTickMaps(checks, checksTimes, d.checks.checks||{}, d.checks.times||{});
+      checks=m.vals; checksTimes=m.times;
+    } else if((d.checks.date||"") > (checksDate||"")){   // remote is a newer day — adopt wholesale
+      checks=d.checks.checks||{}; checksTimes=d.checks.times||{}; checksDate=d.checks.date;
+    }
   }
-  if(keep('weeklyJobs') && d.weeklyJobs)                           weeklyJobs               = d.weeklyJobs;
+  if(d.weeklyJobs){
+    const rw=d.weeklyJobs;
+    const m=mergeTickMaps(weeklyJobs.ticks||{}, weeklyJobs.tickTimes||{}, rw.ticks||{}, rw.tickTimes||{});
+    if(keep('weeklyJobs')){   // no local template edit pending — adopt remote template/weekStart
+      weeklyJobs.template = rw.template || weeklyJobs.template;
+      weeklyJobs.weekStart = rw.weekStart || weeklyJobs.weekStart;
+    }
+    weeklyJobs.ticks=m.vals; weeklyJobs.tickTimes=m.times;
+  }
   if(keep('backlogJobs') && d.backlogJobs && d.backlogJobs.length)  backlogJobs              = d.backlogJobs;
   if(keep('weeklyCompletedArchive') && d.weeklyCompletedArchive)    weeklyCompletedArchive   = d.weeklyCompletedArchive;
   if(keep('toolboxMinutesList') && d.toolboxMinutesList && d.toolboxMinutesList.length) toolboxMinutesList = d.toolboxMinutesList;
@@ -1733,11 +1772,12 @@ function loadFromLocal(){
     const pm=localStorage.getItem("pfe5_pasturemobs");if(pm) pastureMobs=JSON.parse(pm);
     const mh=localStorage.getItem("pfe5_meashistory");if(mh) measureHistory=JSON.parse(mh);
     const sc=localStorage.getItem("pfe5_checks");
-    if(sc){const d=JSON.parse(sc);checks=d.checks||{};checksDate=d.date||"";}
+    if(sc){const d=JSON.parse(sc);checks=d.checks||{};checksDate=d.date||"";checksTimes=d.times||{};}
     const dl=localStorage.getItem("pfe5_dailylogs");  if(dl) dailyLogs=JSON.parse(dl);
     const bc=localStorage.getItem("pfe5_barncalc");   if(bc) barnCalc=JSON.parse(bc);
     const cs=localStorage.getItem("pfe5_scenarios");  if(cs) customScenarios=JSON.parse(cs);
     const wj=localStorage.getItem("pfe5_weeklyjobs"); if(wj) weeklyJobs=JSON.parse(wj);
+    if(weeklyJobs && !weeklyJobs.tickTimes) weeklyJobs.tickTimes={};
     const bl=localStorage.getItem("pfe5_backlog");    if(bl) backlogJobs=JSON.parse(bl);
     const wa=localStorage.getItem("pfe5_wjarchive");  if(wa) weeklyCompletedArchive=JSON.parse(wa);
     const tb=localStorage.getItem("pfe5_toolbox");    if(tb) toolboxMinutesList=JSON.parse(tb);
@@ -1790,7 +1830,7 @@ function loadFromLocal(){
 async function loadAll(){
   loadFromLocal();
   const today=TODAY.toISOString().slice(0,10);
-  if(checksDate!==today){checks={};checksDate=today;}
+  if(checksDate!==today){checks={};checksTimes={};checksDate=today;}
   renderAll();
   renderWeeklyJobs(); renderBacklogJobs(); renderToolboxEditor(); renderToolboxHistory();
   renderToolboxAgenda(); renderDiaryTab(); renderAnimalHealth();
@@ -3129,7 +3169,7 @@ function getSuppItemForCheckId(checkId){
 }
 function toggleCheck(id){
   const wasChecked=!!checks[id];
-  checks[id]=!wasChecked;
+  checks[id]=!wasChecked; stampCheck(id);
   const dmKey=`sil_dm_${id}`;
   if(!wasChecked){
     // Ticking on — deduct from silage inventory
@@ -3139,7 +3179,7 @@ function toggleCheck(id){
       if(sil){
         const deduct=Math.min(item.dmTotal,sil.current);
         sil.current=Math.max(0,parseFloat((sil.current-deduct).toFixed(1)));
-        checks[dmKey]={silId:sil.id,dm:deduct};
+        checks[dmKey]={silId:sil.id,dm:deduct}; stampCheck(dmKey);
         queueChange("silage",sil.id,sil);
         if(sil.id==='fbeet'){
           const _w=paddocks.find(p=>p.id==='wood');
@@ -3160,7 +3200,7 @@ function toggleCheck(id){
           if(_w&&(_w.yield||20000)>0){_w.used=parseFloat(Math.max(0,((_w.used||0)-stored.dm/(_w.yield||20000))).toFixed(4));queueChange("paddock",_w.id,_w);}
         }
       }
-      delete checks[dmKey];
+      delete checks[dmKey]; stampCheck(dmKey);
     }
   }
   queueChange("checks","daily",checks);
@@ -3171,7 +3211,7 @@ function toggleCheck(id){
 // "Feed today" — one-off override to feed a supplement on a day its schedule skips.
 // Stored in the daily `checks` object so it auto-clears on the next day (see loadAll date reset).
 function forceFeedToday(id){
-  checks[`feedtoday_${id}`]=true;
+  checks[`feedtoday_${id}`]=true; stampCheck(`feedtoday_${id}`);
   queueChange("checks","daily",checks);
   saveAll();renderFeedOut();
   if(currentTab==="overview")renderOverview();
@@ -3179,7 +3219,7 @@ function forceFeedToday(id){
 }
 function unforceFeedToday(id){
   if(checks[id])return; // untick first so the silage deduction is reversed before removing the override
-  delete checks[`feedtoday_${id}`];
+  delete checks[`feedtoday_${id}`]; stampCheck(`feedtoday_${id}`);
   queueChange("checks","daily",checks);
   saveAll();renderFeedOut();
   if(currentTab==="overview")renderOverview();
@@ -3187,7 +3227,7 @@ function unforceFeedToday(id){
 }
 function toggleBarnCheck(){
   const wasChecked=!!checks["barn"];
-  checks["barn"]=!wasChecked;
+  checks["barn"]=!wasChecked; stampCheck("barn");
   if(!wasChecked){
     // Ticking on — deduct each barn feed's DM from its silage inventory
     const dmHd=barnCalc.lw*barnCalc.dmPct/100;
@@ -3198,7 +3238,7 @@ function toggleBarnCheck(){
       const feedDM=totDM*(feed.pctDM/100);
       const deduct=Math.min(feedDM,sil.current);
       sil.current=Math.max(0,parseFloat((sil.current-deduct).toFixed(1)));
-      checks[`barn_dm_${idx}`]={silId:sil.id,dm:deduct};
+      checks[`barn_dm_${idx}`]={silId:sil.id,dm:deduct}; stampCheck(`barn_dm_${idx}`);
       queueChange("silage",sil.id,sil);
     });
   }else{
@@ -3208,7 +3248,7 @@ function toggleBarnCheck(){
       if(stored){
         const sil=silages.find(s=>s.id===stored.silId);
         if(sil){sil.current=Math.min(sil.opening,parseFloat((sil.current+stored.dm).toFixed(1)));queueChange("silage",sil.id,sil);}
-        delete checks[`barn_dm_${idx}`];
+        delete checks[`barn_dm_${idx}`]; stampCheck(`barn_dm_${idx}`);
       }
     });
   }
@@ -3216,7 +3256,7 @@ function toggleBarnCheck(){
   saveAll();renderFeedOut();
   if(currentTab==="overview")renderOverview();
 }
-function resetChecks(){if(!confirm("Reset all ticks?"))return;checks={};queueChange("checks","daily",checks);saveAll();renderFeedOut();toast("Feed-out list reset");}
+function resetChecks(){if(!confirm("Reset all ticks?"))return;Object.keys(checks).forEach(stampCheck);checks={};queueChange("checks","daily",checks);saveAll();renderFeedOut();toast("Feed-out list reset");}
 function saveDailyLog(){
   const entry={
     date:TODAY.toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
@@ -3352,11 +3392,11 @@ function toggleBreakCheck(id){
     const haKey=`brk_ha_${id}`;
     if(p&&checks[haKey]){
       p.used=Math.max(0,parseFloat((p.used-checks[haKey]).toFixed(4)));
-      delete checks[haKey];
+      delete checks[haKey]; stampCheck(haKey);
       queueChange("paddock",id,p);
       renderOverview();
     }
-    checks[k]=false;
+    checks[k]=false; stampCheck(k);
     queueChange("checks","daily",checks);
     saveAll();renderBreaks();
   } else if(isShift&&p){
@@ -3364,7 +3404,7 @@ function toggleBreakCheck(id){
     openBreakConfirm(id);
   } else {
     // Not a shift day — simple tick
-    checks[k]=true;
+    checks[k]=true; stampCheck(k);
     queueChange("checks","daily",checks);
     saveAll();renderBreaks();
   }
@@ -3394,9 +3434,9 @@ function confirmBreakShift(){
   const ha=p.width>0?parseFloat((m*p.width/10000).toFixed(4)):0;
   if(ha>0){
     p.used=parseFloat(Math.min(p.ha,p.used+ha).toFixed(4));
-    checks[`brk_ha_${_breakConfirmId}`]=ha; // store for reversal
+    checks[`brk_ha_${_breakConfirmId}`]=ha; stampCheck(`brk_ha_${_breakConfirmId}`); // store for reversal
   }
-  checks[`brk_${_breakConfirmId}`]=true;
+  checks[`brk_${_breakConfirmId}`]=true; stampCheck(`brk_${_breakConfirmId}`);
   queueChange("checks","daily",checks);
   if(ha>0) queueChange("paddock",_breakConfirmId,p);
   saveAll();
@@ -3407,7 +3447,7 @@ function confirmBreakShift(){
   if(ha>0)toast(`✓ ${p.name}: ${ha} ha added · ${fmt(p.used,3)} ha used total`);
   else toast(`✓ Break confirmed`);
 }
-function resetBreakChecks(){if(!confirm("Reset all break ticks?"))return;Object.keys(checks).filter(k=>k.startsWith("brk_")).forEach(k=>delete checks[k]);queueChange("checks","daily",checks);saveAll();renderBreaks();toast("Break ticks reset");}
+function resetBreakChecks(){if(!confirm("Reset all break ticks?"))return;Object.keys(checks).filter(k=>k.startsWith("brk_")).forEach(k=>{delete checks[k];stampCheck(k);});queueChange("checks","daily",checks);saveAll();renderBreaks();toast("Break ticks reset");}
 // ══════════════════════════════════════════════════════════
 // HISTORY
 // ══════════════════════════════════════════════════════════
@@ -4270,6 +4310,7 @@ function resetWeeklyTicks(){
   // Archive completed ticks to weeklyCompletedArchive before clearing
   const ws = weeklyJobs.weekStart || getWeekStart();
   archiveCompletedWeeklyJobs(ws);
+  Object.keys(weeklyJobs.ticks).forEach(stampWeekly);
   weeklyJobs.ticks = {};
   weeklyJobs.weekStart = getWeekStart();
   queueChange("weeklyjobs","ticks",weeklyJobs.ticks);
@@ -4361,7 +4402,7 @@ function renderWeeklyJobs(){
 }
 function toggleWeeklyTick(day, idx){
   const key = day+"_"+idx;
-  weeklyJobs.ticks[key] = !weeklyJobs.ticks[key];
+  weeklyJobs.ticks[key] = !weeklyJobs.ticks[key]; stampWeekly(key);
   queueChange("weeklyjobs","ticks",weeklyJobs.ticks);
   saveAll();
   renderWeeklyJobs();

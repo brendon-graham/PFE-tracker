@@ -196,9 +196,9 @@ function handlePush(ss, data, user) {
   if (data.silages)     writeArraySection(ss, SHEETS.silages,     data.silages);
   if (data.pastureMobs) writeArraySection(ss, SHEETS.pastureMobs, data.pastureMobs);
   if (data.barnCalc)    writeObjectSection(ss, SHEETS.barnCalc,   data.barnCalc);
-  if (data.checks)      writeObjectSection(ss, SHEETS.checks,     data.checks);
+  if (data.checks)      writeChecksMerged(ss, SHEETS.checks,     data.checks);
   if (data.scenarios)   writeArraySection(ss, SHEETS.scenarios,   data.scenarios);
-  if (data.weeklyJobs)  writeObjectSection(ss, SHEETS.weeklyJobs, data.weeklyJobs);
+  if (data.weeklyJobs)  writeWeeklyMerged(ss, SHEETS.weeklyJobs, data.weeklyJobs);
   if (data.backlogJobs) writeArraySection(ss, SHEETS.backlogJobs, data.backlogJobs);
   if (data.weeklyCompletedArchive) writeArraySection(ss, SHEETS.weeklyArchive, data.weeklyCompletedArchive);
   if (data.toolboxMinutesList)     writeArraySection(ss, SHEETS.toolbox, data.toolboxMinutesList);
@@ -292,6 +292,8 @@ function applySection(ss, key, value) {
   const sheetName = SECTION_SHEETS[key];
   if (!sheetName) return;
   if (key === "dailyLogs")     { mergeDailyLogs(ss, value); return; }
+  if (key === "checks")        { writeChecksMerged(ss, sheetName, value); return; }
+  if (key === "weeklyJobs")    { writeWeeklyMerged(ss, sheetName, value); return; }
   if (key === "pastureBlocks") {
     // Stale-guard on _ts so an out-of-date phone can't roll it back.
     const curTs = Number((readObjectSection(ss, sheetName) || {})._ts || 0);
@@ -539,6 +541,55 @@ function mergeDailyLogs(ss, logs) {
     const nextRow = Math.max(2, sheet.getLastRow() + 1);
     sheet.getRange(nextRow, 1, newRows.length, 2).setValues(newRows);
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// TICK-MAP MERGE (v13.1) — mirrors the client mergeTickMaps
+// checks (Feed Out + Breaks + barn) and weeklyJobs.ticks are shared per-day
+// maps several phones tick at once. Merge per key by ms timestamp (newest action
+// wins) so a whole-object push never wipes another phone's ticks. A key present
+// in `times` but absent from `vals` is a tombstone (delete) so un-ticks carry.
+// ══════════════════════════════════════════════════════════════════════
+
+function mergeTickMapsGS(valsA, timesA, valsB, timesB) {
+  valsA = valsA || {}; timesA = timesA || {}; valsB = valsB || {}; timesB = timesB || {};
+  var vals = {}, times = {}, seen = {};
+  var all = [].concat(Object.keys(timesA), Object.keys(timesB), Object.keys(valsA), Object.keys(valsB));
+  all.forEach(function (k) {
+    if (seen[k]) return; seen[k] = 1;
+    var ta = Number(timesA[k] || 0), tb = Number(timesB[k] || 0);
+    var useB = tb > ta ? true : ta > tb ? false : (k in valsB && !(k in valsA));
+    var sv = useB ? valsB : valsA, st = useB ? timesB : timesA;
+    var t = Number(st[k] || 0); if (t) times[k] = t;
+    if (k in sv) vals[k] = sv[k];   // else tombstone — key stays deleted
+  });
+  return { vals: vals, times: times };
+}
+
+// Merge incoming checks {checks,date,times} into the stored copy, per day.
+function writeChecksMerged(ss, sheetName, incoming) {
+  if (!incoming) return;
+  var cur = readObjectSection(ss, sheetName) || {};
+  var inDate = incoming.date || "", curDate = cur.date || "";
+  if (inDate && curDate && inDate !== curDate) {
+    // Different day — newer date wins wholesale (the daily tick reset).
+    if (inDate > curDate) writeObjectSection(ss, sheetName, { checks: incoming.checks || {}, date: inDate, times: incoming.times || {} });
+    return;
+  }
+  var m = mergeTickMapsGS(cur.checks || {}, cur.times || {}, incoming.checks || {}, incoming.times || {});
+  writeObjectSection(ss, sheetName, { checks: m.vals, date: inDate || curDate, times: m.times });
+}
+
+// Merge incoming weeklyJobs — ticks merge per key; template/weekStart from incoming.
+function writeWeeklyMerged(ss, sheetName, incoming) {
+  if (!incoming) return;
+  var cur = readObjectSection(ss, sheetName) || {};
+  var m = mergeTickMapsGS(cur.ticks || {}, cur.tickTimes || {}, incoming.ticks || {}, incoming.tickTimes || {});
+  var out = {};
+  Object.keys(cur).forEach(function (k) { out[k] = cur[k]; });
+  Object.keys(incoming).forEach(function (k) { out[k] = incoming[k]; });
+  out.ticks = m.vals; out.tickTimes = m.times;
+  writeObjectSection(ss, sheetName, out);
 }
 
 // ══════════════════════════════════════════════════════════════════════
