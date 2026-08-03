@@ -14,7 +14,7 @@
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v13.2.0";
+  const APP_VERSION = "pfe-v13.3.0";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.2.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.3.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -1091,6 +1091,12 @@ body.outdoor .supp-qty div{font-size:16px!important}
           <option>Jack</option>
           <option>Dylan</option>
         </select>
+      </div>
+      <div class="field" style="margin-top:4px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal">
+          <input type="checkbox" id="wj-modal-recurring" style="width:18px;height:18px;flex-shrink:0">
+          <span>⟳ Recurring — repeats every week (stays when you start a new week)</span>
+        </label>
       </div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button class="btn btn-secondary" style="flex:1" onclick="closeModal('add-weekly-job-modal')">Cancel</button>
@@ -4310,19 +4316,42 @@ function getWeekStart(){
   mon.setDate(d.getDate() + diff);
   return mon.toISOString().slice(0,10);
 }
+// A job is recurring (survives a New Week) ONLY if explicitly flagged. Plain
+// strings and objects without recurring:true are one-off and clear on roll-over.
+function isRecurringJob(t){ return typeof t === 'object' && t !== null && t.recurring === true; }
+// Weekdays whose one-off jobs clear on New Week. "Next Week" + "Extra" are
+// planning buckets — left untouched so parked/ahead jobs are never wiped.
+const WJ_CLEAR_DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+// Edit-mode toggle: flip a single job between recurring and one-off.
+function toggleJobRecurring(day, idx){
+  const arr = weeklyJobs.template[day]; if(!arr || arr[idx] == null) return;
+  let t = arr[idx];
+  if(typeof t !== 'object' || t === null) t = {text:String(t), priority:'normal', category:'', assignedTo:''};
+  t.recurring = !t.recurring;
+  arr[idx] = t;
+  weeklyJobs.structTs = Date.now();   // template edit — this device's board is now newest
+  queueChange("weeklyjobs",day,arr);
+  saveAll();
+  renderWeeklyJobs();
+  toast(t.recurring ? "⟳ Recurring — stays each week" : "One-off — clears next week");
+}
 function resetWeeklyTicks(){
-  if(!confirm("Clear all ticks and start a new week? Completed jobs will be recorded for this week's toolbox minutes.")) return;
+  let removeCount = 0, keepCount = 0;
+  WJ_CLEAR_DAYS.forEach(day => (weeklyJobs.template[day]||[]).forEach(t => { isRecurringJob(t) ? keepCount++ : removeCount++; }));
+  if(!confirm(`Start a new week?\n\n• Clears all ticks\n• Removes ${removeCount} one-off job${removeCount===1?'':'s'} (Mon–Sun)\n• Keeps ${keepCount} recurring job${keepCount===1?'':'s'} (⟳)\n\n"Next Week" and "Extra" are left untouched. Completed jobs are recorded for this week's toolbox minutes.`)) return;
   // Archive completed ticks to weeklyCompletedArchive before clearing
   const ws = weeklyJobs.weekStart || getWeekStart();
   archiveCompletedWeeklyJobs(ws);
   Object.keys(weeklyJobs.ticks).forEach(stampWeekly);
   weeklyJobs.ticks = {};
+  // Keep the recurring core, drop one-off jobs — weekdays only.
+  WJ_CLEAR_DAYS.forEach(day => { if(weeklyJobs.template[day]) weeklyJobs.template[day] = weeklyJobs.template[day].filter(isRecurringJob); });
   weeklyJobs.weekStart = getWeekStart();
   weeklyJobs.structTs = Date.now();   // new week wins over any stale phone's old board
   queueChange("weeklyjobs","ticks",weeklyJobs.ticks);
   saveAll();
   renderWeeklyJobs();
-  toast("✓ New week started — ticks cleared");
+  toast(`✓ New week — ${removeCount} one-off cleared, ${keepCount} recurring kept`);
 }
 function archiveCompletedWeeklyJobs(weekStart){
   const completed = [];
@@ -4380,6 +4409,7 @@ function renderWeeklyJobs(){
         const priority = isObj ? (t.priority || 'normal') : 'normal';
         const category = isObj ? (t.category || '') : '';
         const assignedTo = isObj ? (t.assignedTo || '') : '';
+        const recurring = isRecurringJob(t);
         const borderColor = priority === 'urgent' ? 'var(--danger)' : priority === 'high' ? 'var(--warn)' : 'transparent';
         html += `<div style="display:flex;align-items:flex-start;padding:10px 12px;border-bottom:1px solid var(--fog);gap:10px;border-left:3px solid ${borderColor};${ticked?"opacity:.5":""}">
           <div onclick="toggleWeeklyTick('${day}',${i})" style="width:22px;height:22px;border-radius:50%;border:2px solid ${ticked?"var(--grass)":"var(--border)"};background:${ticked?"var(--grass)":"transparent"};display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-top:1px">
@@ -4391,9 +4421,10 @@ function renderWeeklyJobs(){
               ${priority !== 'normal' ? `<span class="tag-${priority}">${priority.charAt(0).toUpperCase()+priority.slice(1)}</span>` : ''}
               ${category ? `<span style="font-size:10px;background:var(--fog);color:var(--bark);padding:2px 6px;border-radius:10px;font-weight:600">${category}</span>` : ''}
               ${assignedTo ? `<span style="font-size:10px;background:#DBEAFE;color:#1D4ED8;padding:2px 6px;border-radius:10px;font-weight:600">→ ${assignedTo}</span>` : ''}
+              ${recurring ? `<span title="Repeats every week" style="font-size:10px;background:#E0E7FF;color:#4338CA;padding:2px 6px;border-radius:10px;font-weight:600">⟳ Weekly</span>` : ''}
             </div>
           </div>
-          <button onclick="openAddWeeklyJobModal('${day}',${i})" style="background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:0 4px;flex-shrink:0">✏️</button>${weeklyEditMode?`<button onclick="removeWeeklyTask('${day}',${i})" style="background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer;padding:0 4px;flex-shrink:0">×</button>`:""}
+          ${weeklyEditMode?`<button onclick="toggleJobRecurring('${day}',${i})" title="${recurring?'Recurring — tap to make one-off':'One-off — tap to make recurring'}" style="background:none;border:none;color:${recurring?'#4338CA':'var(--border)'};font-size:15px;cursor:pointer;padding:0 4px;flex-shrink:0">⟳</button>`:""}<button onclick="openAddWeeklyJobModal('${day}',${i})" style="background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:0 4px;flex-shrink:0">✏️</button>${weeklyEditMode?`<button onclick="removeWeeklyTask('${day}',${i})" style="background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer;padding:0 4px;flex-shrink:0">×</button>`:""}
         </div>`;
       });
     }
@@ -4428,6 +4459,7 @@ function openAddWeeklyJobModal(preselectedDay, editIdx){
     document.getElementById('wj-modal-priority').value = isObj ? (existing.priority||'normal') : 'normal';
     document.getElementById('wj-modal-category').value = isObj ? (existing.category||'') : '';
     document.getElementById('wj-modal-assigned').value = isObj ? (existing.assignedTo||'') : '';
+    { const rc = document.getElementById('wj-modal-recurring'); if(rc) rc.checked = isObj ? (existing.recurring===true) : false; }
     document.getElementById('add-weekly-job-modal-title').textContent = 'Edit Job';
     document.getElementById('add-weekly-job-save-btn').textContent = 'Save Job';
   }else{
@@ -4435,6 +4467,7 @@ function openAddWeeklyJobModal(preselectedDay, editIdx){
     ['wj-modal-text','wj-modal-assigned'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
     const pr = document.getElementById('wj-modal-priority'); if(pr) pr.value='normal';
     const cat = document.getElementById('wj-modal-category'); if(cat) cat.value='';
+    const rc = document.getElementById('wj-modal-recurring'); if(rc) rc.checked=false;
     document.getElementById('add-weekly-job-modal-title').textContent = 'Add Weekly Job';
     document.getElementById('add-weekly-job-save-btn').textContent = 'Add Job';
   }
@@ -4447,7 +4480,8 @@ function saveWeeklyJobModal(){
   const priority = (document.getElementById('wj-modal-priority')||{}).value || 'normal';
   const category = (document.getElementById('wj-modal-category')||{}).value || '';
   const assignedTo = ((document.getElementById('wj-modal-assigned')||{}).value||'').trim();
-  const job = priority === 'normal' && !category && !assignedTo ? text : {text, priority, category, assignedTo};
+  const recurring = !!((document.getElementById('wj-modal-recurring')||{}).checked);
+  const job = (priority === 'normal' && !category && !assignedTo && !recurring) ? text : {text, priority, category, assignedTo, recurring};
   weeklyJobs.structTs = Date.now();   // template edit — this device's board is now newest
   if(weeklyJobEditIdx!=null && weeklyJobEditDay){
     // Editing existing — if day changed, remove from old day and push to new day
