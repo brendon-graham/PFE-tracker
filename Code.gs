@@ -1,5 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════
-// PFE FARM TRACKER — Google Apps Script Backend v4.0
+// PFE FARM TRACKER — Google Apps Script Backend v4.0  (app v13.2.0)
+// v13.2.0: weeklyJobs structure (template + weekStart) guarded by structTs so a
+//          stale phone can no longer revert a freshly-rolled week — writeWeeklyMerged.
 // ═══════════════════════════════════════════════════════════════════
 // Deploy → New deployment → Web app
 // Execute as: Me | Who has access: Anyone
@@ -580,15 +582,27 @@ function writeChecksMerged(ss, sheetName, incoming) {
   writeObjectSection(ss, sheetName, { checks: m.vals, date: inDate || curDate, times: m.times });
 }
 
-// Merge incoming weeklyJobs — ticks merge per key; template/weekStart from incoming.
+// Merge incoming weeklyJobs — ticks merge per key (tombstones). The STRUCTURE
+// (template + weekStart) is guarded by structTs: the newest week-roll or template
+// edit wins, and a stale phone re-pushing an old board (older or absent structTs)
+// can no longer revert a freshly-rolled week. All-legacy clients (no structTs on
+// either side) fall back to last-writer-wins, so there is no regression.
 function writeWeeklyMerged(ss, sheetName, incoming) {
   if (!incoming) return;
   var cur = readObjectSection(ss, sheetName) || {};
   var m = mergeTickMapsGS(cur.ticks || {}, cur.tickTimes || {}, incoming.ticks || {}, incoming.tickTimes || {});
+  var curStruct = Number(cur.structTs) || 0;
+  var inStruct  = Number(incoming.structTs) || 0;
   var out = {};
+  // Start from the stored copy — this preserves cur.template/weekStart/structTs.
   Object.keys(cur).forEach(function (k) { out[k] = cur[k]; });
-  Object.keys(incoming).forEach(function (k) { out[k] = incoming[k]; });
-  out.ticks = m.vals; out.tickTimes = m.times;
+  if (inStruct >= curStruct) {
+    // Incoming structure is newest — adopt all its fields (template, weekStart, etc.).
+    Object.keys(incoming).forEach(function (k) { out[k] = incoming[k]; });
+    out.structTs = inStruct;
+  }
+  // else: stored structure is newer — keep it; incoming template/weekStart are ignored.
+  out.ticks = m.vals; out.tickTimes = m.times;   // ticks always merge, either way
   writeObjectSection(ss, sheetName, out);
 }
 

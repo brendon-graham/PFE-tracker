@@ -14,7 +14,7 @@
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v13.1.0";
+  const APP_VERSION = "pfe-v13.2.0";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.1.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.2.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -1333,7 +1333,7 @@ let measureHistory={};
 let dailyLogs=[];
 let editingId=null,editingSilId=null,editingPmId=null,pendingPaddockId=null;
 // New data stores declared here so saveAll/loadFromLocal can reference them safely
-let weeklyJobs = { template: {}, ticks: {}, tickTimes: {}, weekStart: "" };
+let weeklyJobs = { template: {}, ticks: {}, tickTimes: {}, weekStart: "", structTs: 0 };
 let backlogJobs = [];
 let weeklyCompletedArchive = [];
 let toolboxMinutesList = [];
@@ -1704,9 +1704,13 @@ function applyPullData(d, skip){
   if(d.weeklyJobs){
     const rw=d.weeklyJobs;
     const m=mergeTickMaps(weeklyJobs.ticks||{}, weeklyJobs.tickTimes||{}, rw.ticks||{}, rw.tickTimes||{});
-    if(keep('weeklyJobs')){   // no local template edit pending — adopt remote template/weekStart
+    // Structure (template + weekStart) is guarded by structTs — the newest week-roll or
+    // template edit wins. Only adopt the remote structure when it is at least as new as
+    // ours, so a stale phone re-pushing an old board can never revert a freshly-rolled week.
+    if(keep('weeklyJobs') && (Number(rw.structTs)||0) >= (Number(weeklyJobs.structTs)||0)){
       weeklyJobs.template = rw.template || weeklyJobs.template;
       weeklyJobs.weekStart = rw.weekStart || weeklyJobs.weekStart;
+      weeklyJobs.structTs = Number(rw.structTs)||0;
     }
     weeklyJobs.ticks=m.vals; weeklyJobs.tickTimes=m.times;
   }
@@ -1778,6 +1782,7 @@ function loadFromLocal(){
     const cs=localStorage.getItem("pfe5_scenarios");  if(cs) customScenarios=JSON.parse(cs);
     const wj=localStorage.getItem("pfe5_weeklyjobs"); if(wj) weeklyJobs=JSON.parse(wj);
     if(weeklyJobs && !weeklyJobs.tickTimes) weeklyJobs.tickTimes={};
+    if(weeklyJobs && weeklyJobs.structTs==null) weeklyJobs.structTs=0;
     const bl=localStorage.getItem("pfe5_backlog");    if(bl) backlogJobs=JSON.parse(bl);
     const wa=localStorage.getItem("pfe5_wjarchive");  if(wa) weeklyCompletedArchive=JSON.parse(wa);
     const tb=localStorage.getItem("pfe5_toolbox");    if(tb) toolboxMinutesList=JSON.parse(tb);
@@ -4295,7 +4300,7 @@ const DEFAULT_WEEKLY_TEMPLATE = {
 // weeklyJobs = { template: {day:[tasks]}, ticks: {day_idx: bool}, weekStart: "YYYY-MM-DD" }
 // Only apply hardcoded defaults if no saved data exists — prevents overwriting live data after loadFromLocal() has already run
 if (!localStorage.getItem('pfe5_weeklyjobs')) {
-  weeklyJobs = { template: JSON.parse(JSON.stringify(DEFAULT_WEEKLY_TEMPLATE)), ticks: {}, weekStart: "" };
+  weeklyJobs = { template: JSON.parse(JSON.stringify(DEFAULT_WEEKLY_TEMPLATE)), ticks: {}, weekStart: "", structTs: 0 };
 }
 function getWeekStart(){
   const d = new Date();
@@ -4313,6 +4318,7 @@ function resetWeeklyTicks(){
   Object.keys(weeklyJobs.ticks).forEach(stampWeekly);
   weeklyJobs.ticks = {};
   weeklyJobs.weekStart = getWeekStart();
+  weeklyJobs.structTs = Date.now();   // new week wins over any stale phone's old board
   queueChange("weeklyjobs","ticks",weeklyJobs.ticks);
   saveAll();
   renderWeeklyJobs();
@@ -4442,6 +4448,7 @@ function saveWeeklyJobModal(){
   const category = (document.getElementById('wj-modal-category')||{}).value || '';
   const assignedTo = ((document.getElementById('wj-modal-assigned')||{}).value||'').trim();
   const job = priority === 'normal' && !category && !assignedTo ? text : {text, priority, category, assignedTo};
+  weeklyJobs.structTs = Date.now();   // template edit — this device's board is now newest
   if(weeklyJobEditIdx!=null && weeklyJobEditDay){
     // Editing existing — if day changed, remove from old day and push to new day
     if(weeklyJobEditDay===day){
@@ -4475,6 +4482,7 @@ function removeWeeklyTask(day, idx){
   if(!weeklyJobs.template[day] || weeklyJobs.template[day][idx] == null) return;
   if(!confirm("Remove this weekly job?")) return;
   weeklyJobs.template[day].splice(idx, 1);
+  weeklyJobs.structTs = Date.now();   // template edit — this device's board is now newest
   // Rebuild ticks for that day so tick indexes do not point at the wrong jobs after deletion.
   const oldTicks = {...(weeklyJobs.ticks || {})};
   Object.keys(oldTicks).forEach(k => {
