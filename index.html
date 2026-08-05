@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="13.4.0">
+<meta name="app-version" content="13.5.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v13.4.0";
+  const APP_VERSION = "pfe-v13.5.0";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.4.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.5.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -2529,6 +2529,17 @@ function switchTab(t){
 // Project how many days a silage will last, accounting for mob changes.
 // Barn future mobs draw from each silage in the same ratio as the current barn ration.
 // Paddock supplement draw stops when the crop finishes (finishDate).
+// Unified pasture-mob list for the supplement calcs: pasture-block mobs (each now carries its own
+// supps[] + paddock) plus any legacy Feed Out pastureMobs[] not yet imported. Feeds every supplement
+// draw/feed-out read so a mob is entered once (on the Pasture tab) and both grazes cover and gets fed.
+function allPastureMobs(){
+  const out=[];
+  for(const{key}of PASTURE_BLOCK_DEFS){
+    ((pastureBlocks[key]&&pastureBlocks[key].mobs)||[]).forEach(m=>out.push(Object.assign({_block:key},m)));
+  }
+  pastureMobs.forEach(m=>out.push(m));
+  return out;
+}
 function calcCurrentDraw(sil){
   const barnTotalPct=barnCalc.feeds.reduce((a,f)=>a+(f.pctDM||0),0)||100;
   const barnSilFrac={};
@@ -2552,7 +2563,7 @@ function calcCurrentDraw(sil){
       draw+=p.head*s.dmH*freqFactor(s.freq);
     });
   });
-  pastureMobs.forEach(m=>{
+  allPastureMobs().forEach(m=>{
     (m.supps||[]).forEach(s=>{
       const mapped=getSilageForSuppType(s.type);
       if(!mapped||mapped.id!==sil.id)return;
@@ -2594,7 +2605,7 @@ function calcSilageProjection(sil){
       });
     });
     // Pasture mobs — ongoing
-    pastureMobs.forEach(m=>{
+    allPastureMobs().forEach(m=>{
       (m.supps||[]).forEach(s=>{
         const mapped=getSilageForSuppType(s.type);
         if(!mapped||mapped.id!==thisSilId)return;
@@ -2643,7 +2654,7 @@ function calcSilageSurplus(sil){
   }
   if(!lastEnd||lastEnd<=today)return null;
   let ongoing=false;
-  pastureMobs.forEach(m=>(m.supps||[]).forEach(s=>{
+  allPastureMobs().forEach(m=>(m.supps||[]).forEach(s=>{
     const mapped=getSilageForSuppType(s.type); if(!mapped||mapped.id!==sil.id)return;
     if(!s.endDate||new Date(s.endDate)>lastEnd)ongoing=true;
   }));
@@ -2660,7 +2671,7 @@ function calcSilageSurplus(sil){
         draw+=p.head*s.dmH*freqFactor(s.freq);
       });
     });
-    pastureMobs.forEach(m=>{
+    allPastureMobs().forEach(m=>{
       (m.supps||[]).forEach(s=>{
         const mapped=getSilageForSuppType(s.type); if(!mapped||mapped.id!==sil.id)return;
         if(s.endDate&&day>=new Date(s.endDate))return;
@@ -2785,7 +2796,7 @@ function renderOverview(){
     const fromCrop=paddocks.filter(p=>p.active).reduce((a,p)=>{
       return a+(p.supps||[]).filter(s=>s.type===st).reduce((b,s)=>b+p.head*s.dmH,0);
     },0);
-    const fromPast=pastureMobs.reduce((a,m)=>{
+    const fromPast=allPastureMobs().reduce((a,m)=>{
       return a+(m.supps||[]).filter(s=>s.type===st).reduce((b,s)=>b+m.head*s.dmH,0);
     },0);
     const tot=fromCrop+fromPast;
@@ -2840,7 +2851,7 @@ function renderOverview(){
   },0);
   // Supplement draw from paddock and pasture mobs (daily figure — used for display)
   const totalSuppDM=paddocks.filter(p=>p.active).reduce((a,p)=>a+(p.supps||[]).reduce((b,s)=>b+p.head*s.dmH,0),0)+
-    pastureMobs.reduce((a,m)=>a+(m.supps||[]).reduce((b,s)=>b+m.head*s.dmH,0),0);
+    allPastureMobs().reduce((a,m)=>a+(m.supps||[]).reduce((b,s)=>b+m.head*s.dmH,0),0);
   // Supplement demand over the period — capped at each source's stop date (paddock finish / supp endDate / 15 Sep)
   const suppRequired=paddocks.filter(p=>p.active).reduce((a,p)=>{
     const pFinish=p.finishDate?Math.min(daysToTarget,Math.max(0,Math.ceil((new Date(p.finishDate)-TODAY)/86400000))):daysToTarget;
@@ -2848,7 +2859,7 @@ function renderOverview(){
       const sDays=s.endDate?Math.min(pFinish,Math.max(0,Math.ceil((new Date(s.endDate)-TODAY)/86400000))):pFinish;
       return b+p.head*s.dmH*sDays;
     },0);
-  },0)+pastureMobs.reduce((a,m)=>a+(m.supps||[]).reduce((b,s)=>{
+  },0)+allPastureMobs().reduce((a,m)=>a+(m.supps||[]).reduce((b,s)=>{
     const sDays=s.endDate?Math.min(daysToTarget,Math.max(0,Math.ceil((new Date(s.endDate)-TODAY)/86400000))):daysToTarget;
     return b+m.head*s.dmH*sDays;
   },0),0);
@@ -3053,7 +3064,7 @@ function renderFeedOut(){
       allItems.push({id,name:p.name,mob:p.stockClass||"",type:s.type,dmDay,wetDay,wetToday,mult,nextMult,freq:s.freq,todayFeed,forced,feeders,balesDay,balesToday,source:"crop",splits:p.splits||null});
     });
   });
-  pastureMobs.forEach(m=>{
+  allPastureMobs().forEach(m=>{
     (m.supps||[]).forEach((s,idx)=>{
       const id=`pm_${m.id}_${idx}`;
       const sched=isBreakDay(s.freq);
@@ -3070,7 +3081,7 @@ function renderFeedOut(){
       const feeders=s.feeders||1;
       const balesDay=s.type==="Baleage"&&sil?.wetPerBale>0?wetDay/sil.wetPerBale:null;
       const balesToday=balesDay!=null&&mult>0?balesDay*mult:null;
-      allItems.push({id,name:m.name,mob:m.note||"Pasture",type:s.type,dmDay,wetDay,wetToday,mult,nextMult,freq:s.freq,todayFeed,forced,feeders,balesDay,balesToday,source:"pasture"});
+      allItems.push({id,name:m.name,mob:m.paddock||m.note||"Pasture",type:s.type,dmDay,wetDay,wetToday,mult,nextMult,freq:s.freq,todayFeed,forced,feeders,balesDay,balesToday,source:"pasture"});
     });
   });
   // Progress
@@ -3161,11 +3172,16 @@ function renderFeedOut(){
   // Pasture mob management strip — the mobs' supplement items themselves are now shown
   // above, merged into the per-feed-type list alongside crop supplements (tagged "PASTURE MOB").
   let pHTML="";
-  if(pastureMobs.length){
+  const apm=allPastureMobs();
+  if(apm.length){
     pHTML=`<div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0">`;
-    pastureMobs.forEach(m=>{pHTML+=`<button class="edit-btn" onclick="openEditPastureMob('${m.id}')">✏ ${m.name}</button>`;});
+    apm.forEach(m=>{
+      const onclick=m._block?`openPastureMobModal('${m._block}','${m.id}')`:`openEditPastureMob('${m.id}')`;
+      const loc=m.paddock?` · ${m.paddock}`:'';
+      pHTML+=`<button class="edit-btn" onclick="${onclick}">✏ ${m.name}${loc}</button>`;
+    });
     pHTML+=`</div>`;
-  }else{pHTML=`<div class="empty-state" style="padding:16px">No pasture mobs — tap + to add</div>`;}
+  }else{pHTML=`<div class="empty-state" style="padding:16px">No pasture mobs — manage on the Pasture tab</div>`;}
   document.getElementById("fo-pasture-list").innerHTML=pHTML;
 }
 // Map supplement type to silage inventory id
@@ -3179,7 +3195,7 @@ function getSuppItemForCheckId(checkId){
   // Crop paddock supplement: {paddockId}_{suppIdx}
   const pmMatch=checkId.match(/^pm_(.+)_(\d+)$/);
   if(pmMatch){
-    const m=pastureMobs.find(x=>x.id===pmMatch[1]);
+    const m=allPastureMobs().find(x=>x.id===pmMatch[1]);
     if(!m)return null;
     const s=(m.supps||[])[parseInt(pmMatch[2])];
     if(!s)return null;
@@ -3313,7 +3329,7 @@ function saveDailyLog(){
         if(s.type===st&&checks[id]&&mult>0)tot+=p.head*s.dmH*mult;
       });
     });
-    pastureMobs.forEach(m=>{
+    allPastureMobs().forEach(m=>{
       (m.supps||[]).forEach((s,idx)=>{
         const id=`pm_${m.id}_${idx}`;
         const forced=!isBreakDay(s.freq||"daily")&&checks[`feedtoday_${id}`]===true;
@@ -3546,8 +3562,10 @@ function renderHistory(){
 // ══════════════════════════════════════════════════════════
 let modalSuppRows=[];
 let pmSuppRows=[];
+let pbSuppRows=[]; // Pasture-tab mob modal supplement rows (merged mob record)
 window.modalSuppRows=modalSuppRows;
 window.pmSuppRows=pmSuppRows;
+window.pbSuppRows=pbSuppRows;
 function buildSuppRows(supps,containerId,rowArr){
   rowArr.length=0;
   // Default DM% by type if not stored
@@ -3560,7 +3578,7 @@ function renderSuppRows(containerId,rowArr){
   const allSc=getAllScenarios();
   const defaultDmPct={Baleage:38,Beet:24.79,PKE:88,"Bulk Silage":35,"Lucerne Silage":35,"Silage/Urea/DCP":35,Barley:86,Peas:85,Other:35};
   // Inline handlers run in global scope — must reference the actual global array name, not the local parameter
-  const arrName = containerId==="supp-editor-rows" ? "modalSuppRows" : "pmSuppRows";
+  const arrName = containerId==="supp-editor-rows" ? "modalSuppRows" : (containerId==="pmm-supp-rows" ? "pbSuppRows" : "pmSuppRows");
   c.innerHTML=rowArr.map((s,i)=>{
     const isBaleage=s.type==="Baleage";
     const feeders=s.feeders||1;
@@ -3607,13 +3625,19 @@ function addPmSuppRow(){
   pmSuppRows.push({type:"Bulk Silage",dmH:0.5,freq:"daily",dmPct:33,endDate:""});
   renderSuppRows("pm-supp-rows",pmSuppRows);
 }
+function addPbSuppRow(){
+  pbSuppRows.push({type:"Bulk Silage",dmH:0.5,freq:"daily",dmPct:33,endDate:""});
+  renderSuppRows("pmm-supp-rows",pbSuppRows);
+}
 function removeSuppRow(i,cid){
   if(cid==="supp-editor-rows"){modalSuppRows.splice(i,1);renderSuppRows("supp-editor-rows",modalSuppRows);previewCalc();}
+  else if(cid==="pmm-supp-rows"){pbSuppRows.splice(i,1);renderSuppRows("pmm-supp-rows",pbSuppRows);}
   else{pmSuppRows.splice(i,1);renderSuppRows("pm-supp-rows",pmSuppRows);}
 }
 function getSuppRowsFromDOM(containerId){
   // Read directly from rowArr arrays which are kept in sync — more reliable than DOM scraping
   if(containerId==="supp-editor-rows") return modalSuppRows.map(s=>({...s}));
+  if(containerId==="pmm-supp-rows") return pbSuppRows.map(s=>({...s}));
   if(containerId==="pm-supp-rows") return pmSuppRows.map(s=>({...s}));
   return [];
 }
@@ -3889,15 +3913,8 @@ function saveStock(){
 }
 // PASTURE MOB MODAL
 function openAddPastureMob(){
-  editingPmId=null;
-  document.getElementById("pm-modal-title").textContent="Add pasture mob";
-  document.getElementById("pm-id").value="pm_"+Date.now();
-  document.getElementById("pm-name").value="";
-  document.getElementById("pm-head").value="";
-  document.getElementById("pm-note").value="";
-  buildSuppRows([],"pm-supp-rows",pmSuppRows);
-  document.getElementById("pm-delete-btn").style.display="none";
-  document.getElementById("pasture-modal").classList.add("open");
+  // Pasture mobs are now managed on the Pasture tab (single merged record: paddock + grazing + supplement).
+  openPastureMobModal("winterGraze",null);
 }
 function openEditPastureMob(id){
   editingPmId=id;
@@ -4139,6 +4156,9 @@ const WJ_DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","
 const BACKLOG_CATS = ["Jobs To Do","Holes to Fill","Poplars Block","Weed Wipe","Paddocks to Mulch","Gorse","Potholes","Completed"];
 // Pasture block constants — must be before loadAll() call (temporal dead zone guard)
 const PASTURE_BLOCK_DEFS=[{key:"winterGraze",label:"Winter Graze"},{key:"autumnSaved",label:"Autumn Saved"}];
+// Curated paddock list for the pasture-mob location dropdown (flats/grazing paddocks the mobs rotate
+// through — the big hill/bush blocks and non-grazing yards/infra are left out; "Other…" covers any gap).
+const PASTURE_PADDOCKS=["Airstrip","Allans","Allans Road","Andys","Ashley's","Auckland","Back Bush","Back School","Barn","Bay of Plenty","Beehives","Bells","Bens","Berts","Big Bills","Big Swamp","Big Triangle","Blairs","Blandswood","BOG","Bondis","Boots","Bottom 60","Bottom Drain","Bottom Duck Pond","Bottom Johns","Bottom Kowhai","Bottom Mains","Bottom Oaks","Bottom Stump","Bottom Walnut","Brake","Brendons","Bull","Buller","Bush","Butlers","Caldwell Yards","Caldwells","Canterbury","Car Park","Cattle Block","Cattle Yard","Cattle Yards 1","Cattle Yards 2","Cattle Yards 3","Cattle Yards 4","Cattle Yards Road","Charlie","Cindys","Connor","Cottage","Counties","Cowies","Creek","Deer Trap","Drain","East Coast","Evans","Front School","Georges 1","Georges 2","Golden Willows 1","Golden Willows 2","Golden Willows 3","Golden Willows 4","Golden Willows 5","Golf 1","Golf 2","Golf 3","Goose","Gorge2","Gorge River","Gorge Yards","Gum 1","Gum 2","Haha","Haines","Halls 1","Halls 2","Hawkes Bay","Haybarn","Holding","Holding Paddock","Homestead","Horowhenua","Horsfall 1","Horsfall 2","Horsfall 3","Horsfall 4","Horsfall Swamp","House","House Pdk","Hunting Block","Ikes","Jake","Jeff's","Jocks","Johnsons","K2 Creek","K4 Creek","K9 Creek","Kerrs","King Country","Kowhai 1","Kowhai 2","Kowhai 3","Kowhai 4","Kowhai 5","Kowhai 6","Kowhai 7","Kowhai 8","Left Deans","Little Horsfall Swamp","Lockies","Long Acre","Longhill Scrub","Mailbox","Manawatu","Margy's","Marks","Marks Block","Marlborough","Martins","Matt's","Max","McDonald's","McKenzies","McKerchers","Mid Canterbury","Middle","Middle School","Mill","Monks","Morris 1","Morris 2","Morris 3","Morris 4","Morris 5","Mothering Up","Nelson Bays","North Harbour","North Otago","Northland","Oaks 1","Oaks 2","Oaks 3","Oaks 4","One Tree","Oregons","Oscar","Otago","Oven","Pam's","Patersons","Pauls","Pig Stye","Pine Tree","Pines","Poplars","Poverty Bay","Pump 1","Pump 2","Pump 3","Race","Right Deans","River","River 1","River 2","River 3","River 4","River 5","River Deer Block","River Terrace","Rob Roy","Robs","Robyn's","Ryans","Scobies","Scotsburn","Scotsburn School","Scrub 1","Scrub 2","Sheep3","South Canterbury","Southland","Sowbie 1","Sowbie 2","Sowbie 3","Sowbie 4","Spookies","Spookies Berts","Spookies Bull","Spookies Drain","Stag Block","Steve's","Stoke","Taines","Tank","Taranaki","Thames Valley","Thatchers","Timothy","Top 60","Top Deans","Top Duck Pond","Top Johns","Top Mains","Top River","Top Stump","Top Walnut","Totora","Tower","Township","Trough","Turnip","Turton","Two Tanks 1","Two Tanks 2","Under Hill","Vege","Village","Waikato","Wairarapa Bush","Wanganui","Wellington","West Coast","Windmill Road","Windmill Yard","Woodings","Woolshed","X Bar","Yards"];
 const PASTURE_MONTH_NAMES=["","","","","May","June","July","August","September","","",""];
 // Animal Health Plan 2026–27 — Farmfirst (sheep) + VetEnt (deer/cattle/dogs)
 // Source: ah-plan-viewer/index.html — updated 25 Jun 2026 plan (Brendon's changes merged over the vet plan). Do NOT rebuild from animal-health-plan-2627.md — that file is the old vet copy.
@@ -5416,8 +5436,9 @@ function buildFarmContext(){
 
   // Pasture mobs
   lines.push("","## Pasture mobs");
-  pastureMobs.forEach(m=>{
-    lines.push(`- ${m.name}: ${m.head} hd${m.note?" — "+m.note:""}`);
+  allPastureMobs().forEach(m=>{
+    const loc=m.paddock||m.note;
+    lines.push(`- ${m.name}: ${m.head} hd${loc?" — "+loc:""}`);
   });
 
   // Recent diary entries (most recent 3)
@@ -5981,6 +6002,13 @@ function renderPastureBlocks(){
   const container=document.getElementById("pasture-blocks-container");
   if(!container)return;
   let html='';
+  if(pastureMobs.length){
+    html+=`<div class="card" style="border-left:4px solid var(--warn);margin-bottom:10px"><div class="card-body" style="padding:12px 14px">
+      <div style="font-weight:800;margin-bottom:4px">${pastureMobs.length} mob${pastureMobs.length>1?'s':''} from the old Feed Out list</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:8px">Move them here so each pasture mob lives in one place. Their supplements come across; set the paddock and grazing kg DM after.</div>
+      <button class="btn btn-primary btn-sm" onclick="importFeedOutMobs()">Move ${pastureMobs.length} mob${pastureMobs.length>1?'s':''} into Winter Graze</button>
+    </div></div>`;
+  }
   for(const{key,label}of PASTURE_BLOCK_DEFS){
     const b=pastureBlocks[key];
     const c=calcPastureBlock(b);
@@ -6023,8 +6051,8 @@ function renderPastureBlocks(){
             const active=new Date(mob.startDate).getTime()<=TODAY.getTime();
             return`<div class="pasture-mob-row">
               <div class="pasture-mob-info">
-                <div class="pasture-mob-name">${mob.name}</div>
-                <div class="pasture-mob-sub">${mob.head} hd &middot; ${mob.dmPerHead} kg DM/hd/day &middot; from ${fmtPDate(mob.startDate)}</div>
+                <div class="pasture-mob-name">${mob.name}${mob.paddock?` <span style="font-weight:600;color:var(--grass)">&middot; ${mob.paddock}</span>`:''}</div>
+                <div class="pasture-mob-sub">${mob.head} hd${mob.dmPerHead?` &middot; ${mob.dmPerHead} kg DM/hd/day`:''} &middot; from ${fmtPDate(mob.startDate)}${(mob.supps&&mob.supps.length)?` &middot; ${mob.supps.map(s=>s.type).join(', ')}`:''}</div>
               </div>
               <div style="text-align:right;flex-shrink:0">
                 <div style="font-size:14px;font-weight:800;color:${active?'var(--grass)':'var(--muted)'}">${fmtDM(mob.head*mob.dmPerHead)}/day</div>
@@ -6080,6 +6108,26 @@ function savePastureSettings(){
   toast("✓ Settings saved");
 }
 
+function fillPmmPaddockSelect(selected){
+  const sel=document.getElementById("pmm-paddock");
+  const known=PASTURE_PADDOCKS.includes(selected);
+  sel.innerHTML=`<option value="">— Select paddock —</option>`+
+    PASTURE_PADDOCKS.map(p=>`<option value="${p}"${p===selected?" selected":""}>${p}</option>`).join("")+
+    `<option value="__other__"${(selected&&!known)?" selected":""}>Other…</option>`;
+  const other=document.getElementById("pmm-paddock-other");
+  if(selected&&!known){other.style.display="block";other.value=selected;}
+  else{other.style.display="none";other.value="";}
+}
+function onPmmPaddockChange(){
+  const other=document.getElementById("pmm-paddock-other");
+  if(document.getElementById("pmm-paddock").value==="__other__"){other.style.display="block";other.focus();}
+  else{other.style.display="none";other.value="";}
+}
+function pmmPaddockValue(){
+  const sel=document.getElementById("pmm-paddock").value;
+  if(sel==="__other__")return document.getElementById("pmm-paddock-other").value.trim();
+  return sel;
+}
 function openPastureMobModal(key,mobId){
   editingPastureKey=key;
   editingPastureMobId=mobId;
@@ -6093,11 +6141,15 @@ function openPastureMobModal(key,mobId){
     document.getElementById("pmm-head").value=mob.head;
     document.getElementById("pmm-dm").value=mob.dmPerHead;
     document.getElementById("pmm-start").value=mob.startDate;
+    fillPmmPaddockSelect(mob.paddock||"");
+    buildSuppRows(mob.supps||[],"pmm-supp-rows",pbSuppRows);
   }else{
     document.getElementById("pmm-name").value="";
     document.getElementById("pmm-head").value="";
     document.getElementById("pmm-dm").value="";
     document.getElementById("pmm-start").value=TODAY.toISOString().slice(0,10);
+    fillPmmPaddockSelect("");
+    buildSuppRows([],"pmm-supp-rows",pbSuppRows);
   }
   document.getElementById("pasture-mob-modal").classList.add("open");
 }
@@ -6106,15 +6158,18 @@ function savePastureBlockMob(){
   const name=document.getElementById("pmm-name").value.trim();
   const head=parseFloat(document.getElementById("pmm-head").value)||0;
   const dmPerHead=parseFloat(document.getElementById("pmm-dm").value)||0;
-  const startDate=document.getElementById("pmm-start").value;
-  if(!name||!head||!startDate){toast("Please fill in all fields");return;}
+  let startDate=document.getElementById("pmm-start").value;
+  const paddock=pmmPaddockValue();
+  const supps=getSuppRowsFromDOM("pmm-supp-rows");
+  if(!name||!head){toast("Add a mob name and head count");return;}
+  if(!startDate)startDate=TODAY.toISOString().slice(0,10);
   const b=pastureBlocks[editingPastureKey];
   if(!b.mobs)b.mobs=[];
   if(editingPastureMobId){
     const idx=b.mobs.findIndex(m=>m.id===editingPastureMobId);
-    if(idx>=0)b.mobs[idx]={...b.mobs[idx],name,head,dmPerHead,startDate};
+    if(idx>=0)b.mobs[idx]={...b.mobs[idx],name,head,dmPerHead,startDate,paddock,supps};
   }else{
-    b.mobs.push({id:"pm_"+Date.now(),name,head,dmPerHead,startDate});
+    b.mobs.push({id:"pm_"+Date.now(),name,head,dmPerHead,startDate,paddock,supps});
   }
   pastureBlocks._ts=Date.now();
   saveAll();
@@ -6130,6 +6185,25 @@ function deletePastureBlockMob(){
   saveAll();
   closeModal("pasture-mob-modal");
   renderPastureBlocks();
+}
+
+// One-tap move of legacy Feed Out pasture mobs into the Pasture tab (Winter Graze). Supplements carry
+// across; grazing kg DM starts at 0 (no phantom cover draw) for Brendon to set. Clears pastureMobs so
+// nothing is double-counted (allPastureMobs reads block mobs + legacy — a mob lives in exactly one).
+function importFeedOutMobs(){
+  if(!pastureMobs.length)return;
+  const b=pastureBlocks.winterGraze;
+  if(!b.mobs)b.mobs=[];
+  const today=TODAY.toISOString().slice(0,10);
+  pastureMobs.forEach(m=>{
+    b.mobs.push({id:m.id,name:m.name,head:m.head||0,dmPerHead:0,startDate:today,paddock:"",supps:(m.supps||[]).map(s=>({...s})),note:m.note||""});
+  });
+  pastureMobs=[];
+  pastureBlocks._ts=Date.now();
+  saveAll();
+  renderPastureBlocks();
+  if(typeof renderFeedOut==="function")renderFeedOut();
+  toast("✓ Mobs moved to Pasture tab");
 }
 
 function openPastureUpdateModal(key,idx){
@@ -6289,11 +6363,18 @@ function deletePastureUpdate(){
     </div>
     <div class="modal-body">
       <div class="field"><label>Mob name</label><input type="text" id="pmm-name" placeholder="e.g. MA Comms on Flats"></div>
+      <div class="field"><label>Paddock (where it is now)</label>
+        <select id="pmm-paddock" onchange="onPmmPaddockChange()" style="padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;width:100%;background:#fff"></select>
+        <input type="text" id="pmm-paddock-other" placeholder="Type paddock name" style="display:none;margin-top:6px;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;width:100%">
+      </div>
       <div class="field-row">
         <div class="field"><label>Head count</label><input type="number" id="pmm-head" min="1" placeholder="e.g. 800"></div>
-        <div class="field"><label>kg DM / head / day</label><input type="number" id="pmm-dm" step="0.1" min="0" placeholder="e.g. 10.5"></div>
+        <div class="field"><label>kg DM / head / day</label><input type="number" id="pmm-dm" step="0.1" min="0" placeholder="grazing, opt"></div>
       </div>
       <div class="field"><label>Start date on pasture</label><input type="date" id="pmm-start"></div>
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--muted);letter-spacing:.5px;margin:2px 0 8px">Supplements (optional)</div>
+      <div id="pmm-supp-rows"></div>
+      <button class="btn btn-secondary btn-sm" onclick="addPbSuppRow()" style="margin-bottom:12px">+ Add supplement</button>
       <div style="display:flex;gap:8px;margin-top:4px">
         <button id="pmm-delete-btn" class="btn btn-secondary" style="display:none;flex:0 0 auto;color:var(--danger)" onclick="deletePastureBlockMob()">Delete</button>
         <button class="btn btn-secondary" style="flex:1" onclick="closeModal('pasture-mob-modal')">Cancel</button>
