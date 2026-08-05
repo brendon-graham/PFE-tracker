@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="13.1.0">
+<meta name="app-version" content="13.4.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v13.3.0";
+  const APP_VERSION = "pfe-v13.4.0";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.3.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.4.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -1395,11 +1395,12 @@ let syncTimer = null;
 let lastSheetsTs = Number(localStorage.getItem('pfe5_lastSheetsTs') || 0);
 let barnScheduleTs = Number(localStorage.getItem('pfe5_barnscheduleTs') || 0);
 let pushInFlight = false;
-const SYNC_DEBOUNCE_MS = 1500;
+const SYNC_DEBOUNCE_MS = 8000;   // idle debounce — a burst of entry coalesces into ONE push (v13.4). Corruption guards are version/structTs/lock based, independent of push frequency.
 // ── Sync v13 — server-authoritative version + section-level push ───────
 let lastVersion   = Number(localStorage.getItem('pfe5_lastVersion') || 0);
 let serverIsLegacy = false;          // set on pull: old server (no version field) → fall back to full-blob push
-let retryTimer = null, retryDelay = 0;
+let retryTimer = null, retryDelay = 0, retryCount = 0;
+let pendingRender = false;   // a background merge landed mid-entry — render deferred until idle (v13.4)
 let syncedSnapshot = (()=>{ try{ return JSON.parse(localStorage.getItem('pfe5_syncsnap')||'{}'); }catch(e){ return {}; } })();
 // The sections the server persists. Push ONLY the ones that changed, so a phone
 // editing one tab can never clobber another phone's untouched tab.
@@ -1449,7 +1450,25 @@ function mergeTickMaps(valsA, timesA, valsB, timesB){
   return {vals, times};
 }
 function schedulePush(ms){ clearTimeout(syncTimer); syncTimer=setTimeout(pushToSheet, ms==null?SYNC_DEBOUNCE_MS:ms); }
-function scheduleRetry(){ retryDelay = retryDelay ? Math.min(retryDelay*2, 30000) : 2000; clearTimeout(retryTimer); retryTimer=setTimeout(pushToSheet, retryDelay); }
+function scheduleRetry(){ retryCount++; retryDelay = retryDelay ? Math.min(retryDelay*2, 30000) : 2000; clearTimeout(retryTimer); retryTimer=setTimeout(pushToSheet, retryDelay); }
+// Push any pending edits immediately — called at natural "done" boundaries (modal
+// close, tab switch, app backgrounded) so the longer idle debounce never delays a
+// save the user has clearly finished. Coalesces a burst of edits into ONE push.
+function flushSync(){
+  if(!SCRIPT_URL || pushInFlight) return;
+  if(dirtySections().length || dirtyScalars().length){ clearTimeout(syncTimer); pushToSheet(); }
+}
+// True while the user is mid-entry — a modal is open or a field is focused. Used to
+// hold back disruptive background re-renders until they finish, so an incoming sync
+// never redraws the screen out from under what they are typing.
+function isEditing(){
+  if(document.querySelector('.modal-overlay.open')) return true;
+  const a=document.activeElement;
+  return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+}
+// A background merge that landed mid-entry sets pendingRender; flush it once the
+// user is idle so the view catches up without interrupting them.
+function drainPendingRender(){ if(pendingRender && !isEditing()){ pendingRender=false; renderAfterSync(); } }
 window.addEventListener('online', ()=>{ if(SCRIPT_URL && (dirtySections().length || dirtyScalars().length)) pushToSheet(); });
 function setSyncUrl(url, name){
   SCRIPT_URL = url.trim();
@@ -1462,13 +1481,19 @@ function renderSyncBar(){
   const bar = document.getElementById("sync-status-bar");
   if(!bar) return;
   const hasUrl = !!SCRIPT_URL;
-  const icons = {idle:"☁",syncing:"⟳",ok:"✓",error:"⚠",offline:"✕"};
-  const cols  = {idle:"#6B6560",syncing:"#2980B9",ok:"#27AE60",error:"#C0392B",offline:"#D68910"};
-  const labels= {idle:"Connecting…",syncing:"Syncing…",ok:"Synced",error:"Sync error",offline:"Offline"};
-  bar.style.background = hasUrl ? cols[syncStatus] : "#6B6560";
+  // Effective display state. Data is ALWAYS saved to the phone first, so a transient
+  // retry must never read as data loss — there is no red state. Show a reassuring
+  // "saving" until retries are clearly failing, and always say the phone holds it.
+  let disp = syncStatus;
+  if(syncStatus==="idle")  disp = (dirtySections().length||dirtyScalars().length) ? "saving" : "idle";
+  if(syncStatus==="error") disp = !navigator.onLine ? "offline" : (retryCount>=4 ? "stuck" : "saving");
+  const icons = {idle:"☁",saving:"⟳",syncing:"⟳",ok:"✓",stuck:"⚠",offline:"☁"};
+  const cols  = {idle:"#6B6560",saving:"#2980B9",syncing:"#2980B9",ok:"#27AE60",stuck:"#D68910",offline:"#D68910"};
+  const labels= {idle:"Up to date",saving:"Saved · syncing…",syncing:"Syncing…",ok:"Synced",stuck:"Saved on phone · retrying",offline:"Offline · saved on phone"};
+  bar.style.background = hasUrl ? cols[disp] : "#6B6560";
   bar.innerHTML = `
-    <span style="font-size:13px">${icons[syncStatus]}</span>
-    <span style="font-size:11px;font-weight:700;flex:1">${hasUrl ? labels[syncStatus] : "Tap to set up sync"}</span>
+    <span style="font-size:13px">${icons[disp]}</span>
+    <span style="font-size:11px;font-weight:700;flex:1">${hasUrl ? labels[disp] : "Tap to set up sync"}</span>
     ${hasUrl ? `<span style="font-size:10px;opacity:.8">${syncUserName}</span>` : ""}
     <button onclick="openSyncModal()" style="background:rgba(255,255,255,.2);border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;color:white;cursor:pointer">${hasUrl?"⚙":"Connect"}</button>
   `;
@@ -1576,7 +1601,7 @@ async function pushSectioned(){
       if(json.serverData) mergeServerData(json.serverData);   // we were behind — merge others' sections in
       persistSnapshot();
       try{ localStorage.setItem("pfe5_lastSync", new Date().toISOString()); }catch(e){}
-      syncStatus="ok"; retryDelay=0;
+      syncStatus="ok"; retryDelay=0; retryCount=0;
     } else if(json && json.ok===false && /payload|Unknown action|sections/i.test(json.error||"")){
       // Old server that doesn't understand section pushes — switch to legacy for good.
       serverIsLegacy=true; pushInFlight=false; return pushLegacy();
@@ -1599,7 +1624,7 @@ function mergeServerData(d){
   saveToLocal();
   Object.keys(SYNC_SECTIONS).forEach(k=>{ if(!skip.has(k)) syncedSnapshot[k]=_secVal(k); });
   Object.keys(SYNC_SCALARS ).forEach(k=>{ if(!skip.has(k)) syncedSnapshot['#'+k]=_scalVal(k); });
-  renderAfterSync();
+  if(isEditing()) pendingRender=true; else renderAfterSync();
 }
 
 // Legacy full-blob push (v12.8.0) — used only against an un-redeployed server.
@@ -2472,13 +2497,14 @@ function toast(msg,col){
   t.style.cssText=`position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:${col||"#3D6B35"};color:white;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:700;z-index:2000;box-shadow:0 4px 16px rgba(0,0,0,.3);white-space:nowrap`;
   t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2500);
 }
-function closeModal(id){document.getElementById(id).classList.remove("open");}
+function closeModal(id){document.getElementById(id).classList.remove("open");flushSync();drainPendingRender();}
 // ══════════════════════════════════════════════════════════
 // TABS
 // ══════════════════════════════════════════════════════════
 let currentTab="overview";
 const TAB_NAMES=["overview","weeklyjobs","feedout","breaks","paddocks","barn","pasture","jobstodo","animalhealth","stockrec"];
 function switchTab(t){
+  flushSync(); drainPendingRender();
   document.querySelectorAll(".tab-panel").forEach(el=>{el.classList.remove("active");el.style.display="none";});
   document.querySelectorAll(".tab-btn").forEach((btn,i)=>{btn.classList.remove("active");if(TAB_NAMES[i]===t)btn.classList.add("active");});
   const panel=document.getElementById("tab-"+t);
@@ -4242,6 +4268,7 @@ async function liveSyncPoll(){
   if(!SCRIPT_URL) return;
   if(syncStatus==='syncing' || pushInFlight || syncPending) return;
   if(document.hidden) return;
+  if(isEditing()) return;   // never pull-and-re-render while staff are mid-entry (v13.4)
   try{
     const res = await fetch(SCRIPT_URL+'?action=pull&t='+Date.now(), {method:'GET',mode:'cors',cache:'no-store'});
     const json = await res.json();
@@ -4266,7 +4293,9 @@ async function liveSyncPoll(){
   }
 }
 setInterval(liveSyncPoll, 30000); // poll every 30 seconds
-document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) liveSyncPoll(); }); // also poll on app resume
+setInterval(()=>{ flushSync(); drainPendingRender(); }, 60000); // periodic flush of pending edits + any deferred render
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ flushSync(); } else { liveSyncPoll(); } }); // flush on background, poll on resume
+window.addEventListener('pagehide', flushSync); // last-chance flush when the app is closed/backgrounded
 // ── Version check — service worker handles auto-update; this is a belt-and-braces fallback ──
 const CURRENT_VERSION=document.querySelector('meta[name="app-version"]')?.content||"0";
 async function checkForUpdate(){
