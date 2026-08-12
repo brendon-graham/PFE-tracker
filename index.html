@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="13.8.0">
+<meta name="app-version" content="13.8.1">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v13.8.0";
+  const APP_VERSION = "pfe-v13.8.1";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.8.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.8.1</div>
     </div>
   </div>
   <div class="tabs">
@@ -1486,7 +1486,10 @@ function mergeSilagesById(localArr, incomingArr){
 // only ran when both phones' date LABELS matched — so a stale phone's ticks (Doug's
 // PK feed) were silently dropped. Fix: key the day off the LOCAL calendar computed
 // live, and gate ticks by their own absolute ms timestamp, not an unreliable label.
-function localDayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+// Local YYYY-MM-DD for a given date (defaults to now). Use this for any date LABEL
+// or default — `.toISOString().slice(0,10)` gives the UTC date, which in NZ (UTC+12/13)
+// is a day early, so a picker/record could default to yesterday in the morning (v13.8.1).
+function localDayStr(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function startOfDayMs(){ const d=new Date(); d.setHours(0,0,0,0); return d.getTime(); }
 // Keep only ticks stamped on or after local midnight — anything older is a previous
 // day rolling off. Unstamped keys (stamp 0) are treated as stale and dropped.
@@ -1913,11 +1916,11 @@ function loadFromLocal(){
   const BARN_SIL_MAP={"lucerne silage":"lucmz","pasture silage":"bulk","lifting beet":"lbeet","maize silage":"lucmz"};
   barnCalc.feeds.forEach(f=>{f.silageId=BARN_SIL_MAP[(f.name||'').toLowerCase()]||null;});
   // Migration: targetDays → finishDate (v10.0)
-  const todayISO = TODAY.toISOString().slice(0,10);
+  const todayISO = localDayStr(TODAY);
   paddocks.forEach(p=>{
     if(p.targetDays!=null && !p.finishDate){
       const fd=new Date(TODAY.getTime()+p.targetDays*86400000);
-      p.finishDate=fd.toISOString().slice(0,10);
+      p.finishDate=localDayStr(fd);
       delete p.targetDays;
     }
   });
@@ -1925,7 +1928,7 @@ function loadFromLocal(){
   if(barnCalc.days!=null && !barnCalc.finishDate){
     const fd=new Date(TODAY.getTime()+barnCalc.days*86400000);
     barnCalc.startDate=todayISO;
-    barnCalc.finishDate=fd.toISOString().slice(0,10);
+    barnCalc.finishDate=localDayStr(fd);
     delete barnCalc.days;
   }
   // Clear legacy delta queue to avoid confusion
@@ -2754,7 +2757,7 @@ function calcSilageSurplus(sil){
     balance-=draw;
     if(balance<=0)return null;
   }
-  return {dm:Math.round(balance),endDate:lastEnd.toISOString().slice(0,10),ongoing};
+  return {dm:Math.round(balance),endDate:localDayStr(lastEnd),ongoing};
 }
 function renderOverview(){
   // Overview only surfaces an off-track paddock once its crop is actually getting close to running out.
@@ -3381,7 +3384,7 @@ function resetChecks(){if(!confirm("Reset all ticks?"))return;Object.keys(checks
 function saveDailyLog(){
   const entry={
     date:TODAY.toLocaleDateString("en-NZ",{day:"numeric",month:"short",year:"numeric"}),
-    dateISO:TODAY.toISOString().slice(0,10),
+    dateISO:localDayStr(TODAY),
     checks:{...checks},
     barnDone:!!checks["barn"],
     areas:paddocks.map(p=>({id:p.id,name:p.name,used:p.used,crop:p.crop})),
@@ -4968,7 +4971,7 @@ function openNewToolboxMinutes(){
   const dateStr = today.toLocaleDateString("en-NZ",{day:"numeric",month:"long",year:"numeric"});
   activeToolboxMinutes = {
     id: "tb"+Date.now(),
-    date: today.toISOString().slice(0,10),
+    date: localDayStr(today),
     dateLabel: dateStr,
     savedAt: null,
     sections: {
@@ -5215,7 +5218,7 @@ function logBarnMix(){
   const entry={
     id:'bm'+Date.now(),
     date:TODAY.toLocaleDateString('en-NZ',{day:'numeric',month:'short',year:'numeric'}),
-    dateISO:TODAY.toISOString().slice(0,10),
+    dateISO:localDayStr(TODAY),
     head:barnCalc.head,lw:barnCalc.lw,dmPct:barnCalc.dmPct,loads:barnCalc.loads,
     feeds:JSON.parse(JSON.stringify(barnCalc.feeds)),
     additives:JSON.parse(JSON.stringify(barnCalc.additives))
@@ -5286,7 +5289,7 @@ function copyText(t){
 
 // 5. Recurring job auto-generation
 function generateRecurringJobs(){
-  const todayISO=TODAY.toISOString().slice(0,10);
+  const todayISO=localDayStr(TODAY);
   const dow=TODAY.getDay();
   const dayName=DOW_NAMES[dow];
   let changed=false;
@@ -5478,7 +5481,7 @@ async function callClaude(messages, model){
 
 // ── FARM CONTEXT ─────────────────────────────────────────────────────────────
 function buildFarmContext(){
-  const today=TODAY.toISOString().slice(0,10);
+  const today=localDayStr(TODAY);
   const lines=["# PFE Tracker — Farm Snapshot","Date: "+today,""];
 
   // Paddocks
@@ -5600,7 +5603,7 @@ function saveDiaryEntry(){
   const cat=document.getElementById("diary-cat-select").value;
   const notes=(document.getElementById("diary-notes-input").value||"").trim();
   if(!notes){toast("Add a note first");return;}
-  const todayStr=TODAY.toISOString().slice(0,10);
+  const todayStr=localDayStr(TODAY);
   const dateDisplay=`${TODAY.getDate()} ${MONTHS_SHORT[TODAY.getMonth()]} ${TODAY.getFullYear()}`;
   const id=typeof crypto!=="undefined"&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
   const entry={id,person:syncUserName,date:todayStr,dateDisplay,category:cat,notes,agentReviewed:false};
@@ -5857,7 +5860,7 @@ function renderStockMovements(){
   el.innerHTML=`<div style="background:white;border-radius:var(--rs);border:1px solid var(--border);overflow:hidden">${html}</div>`;
 }
 function openAddStockMovement(){
-  document.getElementById('srm-date').value=TODAY.toISOString().slice(0,10);
+  document.getElementById('srm-date').value=localDayStr(TODAY);
   const baseSel=document.getElementById('srm-baseclass');
   baseSel.innerHTML=stockRec.baseClasses.map(b=>`<option value="${b.key}">${b.label}${b.ageTier?` (${b.ageTier})`:''} — ${b.species==='deer'?(b.line==='b11'?'B11':'Red'):'Cattle'}</option>`).join('');
   onStockMoveBaseChange();
@@ -5900,7 +5903,7 @@ function renderDiaryTab(){
   if(!list) return;
   const cutoff=new Date(TODAY);
   cutoff.setDate(cutoff.getDate()-6);
-  const cutoffStr=cutoff.toISOString().slice(0,10);
+  const cutoffStr=localDayStr(cutoff);
   const recent=diary.filter(e=>e.date>=cutoffStr).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
   if(!recent.length){
     list.innerHTML=`<div style="color:var(--muted);font-size:13px;padding:12px 0">No entries this week yet.</div>`;
@@ -5965,7 +5968,7 @@ function openAddAgendaItem(){
   const item=prompt("Agenda item:");
   if(!item||!item.trim())return;
   const id=typeof crypto!=="undefined"&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
-  const newItem={id,addedDate:TODAY.toISOString().slice(0,10),category:"other",item:item.trim(),source:"Manual",priority:"normal",status:"included"};
+  const newItem={id,addedDate:localDayStr(TODAY),category:"other",item:item.trim(),source:"Manual",priority:"normal",status:"included"};
   pendingAgenda.push(newItem);
   queueChange("agenda",id,newItem);
   saveAll();
@@ -6030,7 +6033,7 @@ function calcPastureGrowth(b,fromDate,toDate){
 }
 
 function calcPastureBlock(b){
-  const todayStr=TODAY.toISOString().slice(0,10);
+  const todayStr=localDayStr(TODAY);
   const todayMs=TODAY.getTime();
   const yr=parseInt(b.startDate.slice(0,4));
   const seasonEnd=new Date(yr,8,15);
@@ -6053,7 +6056,7 @@ function calcPastureBlock(b){
   const remainingDM=totalAvailable-consumed;
   const dailyDraw=(b.mobs||[]).reduce((s,m)=>new Date(m.startDate).getTime()<=todayMs?s+m.head*m.dmPerHead:s,0);
   const daysRemaining=dailyDraw>0?Math.max(0,Math.floor(remainingDM/dailyDraw)):null;
-  const finishDate=daysRemaining!==null?new Date(todayMs+daysRemaining*86400000).toISOString().slice(0,10):null;
+  const finishDate=daysRemaining!==null?localDayStr(new Date(todayMs+daysRemaining*86400000)):null;
   return{remainingDM:Math.round(remainingDM),dailyDraw:Math.round(dailyDraw),daysRemaining,finishDate,calibDate,calibCover,totalAvailable:Math.round(totalAvailable)};
 }
 
@@ -6084,7 +6087,7 @@ function renderPastureBlocks(){
     const c=calcPastureBlock(b);
     const mobs=b.mobs||[];
     const updates=(b.coverUpdates||[]).slice().sort((a,z)=>z.date.localeCompare(a.date));
-    const todayStr=TODAY.toISOString().slice(0,10);
+    const todayStr=localDayStr(TODAY);
     const remColor=c.remainingDM<0?'#FCA5A5':'white';
     html+=`<div class="pasture-block">
       <div class="pasture-block-header">
@@ -6217,7 +6220,7 @@ function openPastureMobModal(key,mobId){
     document.getElementById("pmm-name").value="";
     document.getElementById("pmm-head").value="";
     document.getElementById("pmm-dm").value="";
-    document.getElementById("pmm-start").value=TODAY.toISOString().slice(0,10);
+    document.getElementById("pmm-start").value=localDayStr(TODAY);
     fillPmmPaddockSelect("");
     buildSuppRows([],"pmm-supp-rows",pbSuppRows);
   }
@@ -6232,7 +6235,7 @@ function savePastureBlockMob(){
   const paddock=pmmPaddockValue();
   const supps=getSuppRowsFromDOM("pmm-supp-rows");
   if(!name||!head){toast("Add a mob name and head count");return;}
-  if(!startDate)startDate=TODAY.toISOString().slice(0,10);
+  if(!startDate)startDate=localDayStr(TODAY);
   const b=pastureBlocks[editingPastureKey];
   if(!b.mobs)b.mobs=[];
   if(editingPastureMobId){
@@ -6264,7 +6267,7 @@ function importFeedOutMobs(){
   if(!pastureMobs.length)return;
   const b=pastureBlocks.winterGraze;
   if(!b.mobs)b.mobs=[];
-  const today=TODAY.toISOString().slice(0,10);
+  const today=localDayStr(TODAY);
   pastureMobs.forEach(m=>{
     b.mobs.push({id:m.id,name:m.name,head:m.head||0,dmPerHead:0,startDate:today,paddock:"",supps:(m.supps||[]).map(s=>({...s})),note:m.note||""});
   });
@@ -6288,7 +6291,7 @@ function openPastureUpdateModal(key,idx){
     document.getElementById("pum-cover").value=updates[idx].cover;
     document.getElementById("pum-note").value=updates[idx].note||"";
   }else{
-    document.getElementById("pum-date").value=TODAY.toISOString().slice(0,10);
+    document.getElementById("pum-date").value=localDayStr(TODAY);
     document.getElementById("pum-cover").value="";
     document.getElementById("pum-note").value="";
   }
