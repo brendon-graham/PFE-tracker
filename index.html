@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="13.5.0">
+<meta name="app-version" content="13.7.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v13.5.0";
+  const APP_VERSION = "pfe-v13.7.0";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.5.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.7.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -1449,6 +1449,53 @@ function mergeTickMaps(valsA, timesA, valsB, timesB){
   });
   return {vals, times};
 }
+// Per-supplement LWW merge (v13.6) — silages sync as one section, but BOTH a manual
+// "✏ Update" and every feed-out tick write a supplement's `current`. A whole-array
+// last-writer-wins let a phone holding a stale list revert another phone's tally
+// (Brendon's PKE count kept vanishing). Each inventory change now stamps `_ts`; on
+// pull we merge per id so a newer local edit survives a stale remote push and vice
+// versa. Ties (equal or absent `_ts`) take the incoming/server value.
+function mergeSilagesById(localArr, incomingArr){
+  const out=[], seen=new Set();
+  (localArr||[]).forEach(s=>{
+    const inc=(incomingArr||[]).find(x=>x.id===s.id);
+    if(!inc){ out.push(s); seen.add(s.id); return; }
+    const lt=Number(s._ts||0), it=Number(inc._ts||0);
+    out.push(it>=lt?inc:s); seen.add(s.id);
+  });
+  (incomingArr||[]).forEach(inc=>{ if(!seen.has(inc.id)){ out.push(inc); seen.add(inc.id); } });
+  return out;
+}
+// ── Daily tick roll-over (v13.7) ──────────────────────────────────────
+// Feed-out / Breaks / Barn ticks in `checks` belong to ONE farm day and clear at
+// midnight. Two things broke this: TODAY was frozen at page load (phones stay open
+// for days, so the day never advanced and the reset never fired), and the pull-merge
+// only ran when both phones' date LABELS matched — so a stale phone's ticks (Doug's
+// PK feed) were silently dropped. Fix: key the day off the LOCAL calendar computed
+// live, and gate ticks by their own absolute ms timestamp, not an unreliable label.
+function localDayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function startOfDayMs(){ const d=new Date(); d.setHours(0,0,0,0); return d.getTime(); }
+// Keep only ticks stamped on or after local midnight — anything older is a previous
+// day rolling off. Unstamped keys (stamp 0) are treated as stale and dropped.
+function pruneChecksToToday(vals, times){
+  const bnd=startOfDayMs(), v={}, t={};
+  const keys=new Set([...Object.keys(vals||{}),...Object.keys(times||{})]);
+  keys.forEach(k=>{ const ts=Number((times||{})[k]||0); if(ts>=bnd){ t[k]=ts; if(k in (vals||{})) v[k]=vals[k]; } });
+  return {vals:v, times:t};
+}
+// Roll local ticks to today if the calendar moved on since they were stamped. Called
+// on load, on the 60s tick and on resume so a phone left open across midnight clears
+// yesterday's ticks without needing a full reload.
+function rollChecksIfNewDay(){
+  const today=localDayStr();
+  if(checksDate===today) return;
+  const p=pruneChecksToToday(checks, checksTimes);
+  checks=p.vals; checksTimes=p.times; checksDate=today;
+  saveToLocal();
+  if(currentTab==="feedout") renderFeedOut();
+  else if(currentTab==="breaks") renderBreaks();
+  else if(currentTab==="overview") renderOverview();
+}
 function schedulePush(ms){ clearTimeout(syncTimer); syncTimer=setTimeout(pushToSheet, ms==null?SYNC_DEBOUNCE_MS:ms); }
 function scheduleRetry(){ retryCount++; retryDelay = retryDelay ? Math.min(retryDelay*2, 30000) : 2000; clearTimeout(retryTimer); retryTimer=setTimeout(pushToSheet, retryDelay); }
 // Push any pending edits immediately — called at natural "done" boundaries (modal
@@ -1656,7 +1703,7 @@ async function pushLegacy(){
         user: syncUserName,
         data:{
           paddocks, silages, pastureMobs, barnCalc,
-          checks:{checks, date:checksDate},
+          checks:{checks, date:checksDate, times:checksTimes},
           scenarios: customScenarios,
           dailyLogs,
           weeklyJobs,
@@ -1712,7 +1759,10 @@ function applyPullData(d, skip){
   skip = skip || new Set();
   const keep = k => !skip.has(k);
   if(keep('paddocks')    && d.paddocks    && d.paddocks.length)    paddocks    = d.paddocks;
-  if(keep('silages')     && d.silages     && d.silages.length)     silages     = d.silages;
+  if(d.silages && d.silages.length){                         // per-id LWW merge, not wholesale replace (v13.6)
+    silages = mergeSilagesById(silages, d.silages);
+    silages.forEach(s=>{if(s.id!=='baleage'&&s.id!=='fbeet'&&s.current>s.opening)s.opening=s.current;});
+  }
   if(keep('pastureMobs') && d.pastureMobs && d.pastureMobs.length) pastureMobs = d.pastureMobs;
   if(keep('barnCalc') && d.barnCalc){
     barnCalc=d.barnCalc;
@@ -1724,13 +1774,13 @@ function applyPullData(d, skip){
   // checks + weeklyJobs.ticks always MERGE per key (LWW) — never skipped, so a
   // local unpushed tick and a remote tick both survive (v13.1).
   if(d.checks){
-    const _today=TODAY.toISOString().slice(0,10);
-    if(d.checks.date===_today && checksDate===_today){
-      const m=mergeTickMaps(checks, checksTimes, d.checks.checks||{}, d.checks.times||{});
-      checks=m.vals; checksTimes=m.times;
-    } else if((d.checks.date||"") > (checksDate||"")){   // remote is a newer day — adopt wholesale
-      checks=d.checks.checks||{}; checksTimes=d.checks.times||{}; checksDate=d.checks.date;
-    }
+    // Always merge ticks per key by their ms stamp, then drop anything older than
+    // local midnight. The date LABEL is NOT trusted — a phone open across midnight
+    // carries a stale one — so the absolute timestamps alone decide recency and
+    // roll-off. A tick made today (Doug's PK feed) merges in regardless of labels.
+    const m=mergeTickMaps(checks, checksTimes, d.checks.checks||{}, d.checks.times||{});
+    const p=pruneChecksToToday(m.vals, m.times);
+    checks=p.vals; checksTimes=p.times; checksDate=localDayStr();
   }
   if(d.weeklyJobs){
     const rw=d.weeklyJobs;
@@ -1842,6 +1892,10 @@ function loadFromLocal(){
   // Sync fbeet balance from Woodings remaining crop DM — Woodings is the source of truth
   {const _w=paddocks.find(p=>p.id==='wood'),_f=silages.find(s=>s.id==='fbeet');
   if(_w&&_f){_f.opening=Math.round(_w.ha*(_w.yield||20000));_f.current=Math.round(Math.max(0,(_w.ha-(_w.used||0))*(_w.yield||20000)));}}
+  // Heal supplements topped up via "✏ Update" — opening must never sit below current, or
+  // "Drawn" goes negative, the % bar sticks at 100%, and an un-tick restore would cap current
+  // back down to the stale opening (v13.6). fbeet is derived above; baleage tracks its bale calc.
+  silages.forEach(s=>{if(s.id!=='baleage'&&s.id!=='fbeet'&&s.current>s.opening)s.opening=s.current;});
   const BARN_SIL_MAP={"lucerne silage":"lucmz","pasture silage":"bulk","lifting beet":"lbeet","maize silage":"lucmz"};
   barnCalc.feeds.forEach(f=>{f.silageId=BARN_SIL_MAP[(f.name||'').toLowerCase()]||null;});
   // Migration: targetDays → finishDate (v10.0)
@@ -1865,8 +1919,7 @@ function loadFromLocal(){
 }
 async function loadAll(){
   loadFromLocal();
-  const today=TODAY.toISOString().slice(0,10);
-  if(checksDate!==today){checks={};checksTimes={};checksDate=today;}
+  rollChecksIfNewDay();   // clear yesterday's ticks (local calendar, not frozen UTC TODAY)
   renderAll();
   renderWeeklyJobs(); renderBacklogJobs(); renderToolboxEditor(); renderToolboxHistory();
   renderToolboxAgenda(); renderDiaryTab(); renderAnimalHealth();
@@ -2751,7 +2804,7 @@ function renderOverview(){
     const alertDays=proj<=150?proj:(proj===151?999:daysR);
     const surplus=proj===151?calcSilageSurplus(s):null;
     const pct=s.opening>0?Math.min(100,(s.current/s.opening)*100):100;
-    const drawn=s.opening-s.current;
+    const drawn=Math.max(0,s.opening-s.current);
     const fc=alertDays!==null&&alertDays<14?"fill-danger":alertDays!==null&&alertDays<30?"fill-warn":"fill-sky";
     const isBaleage=s.id==="baleage";
     const balesRem=isBaleage&&s.dmPerBale>0?Math.round(s.current/s.dmPerBale):null;
@@ -3231,7 +3284,7 @@ function toggleCheck(id){
       const sil=getSilageForSuppType(item.type);
       if(sil){
         const deduct=Math.min(item.dmTotal,sil.current);
-        sil.current=Math.max(0,parseFloat((sil.current-deduct).toFixed(1)));
+        sil.current=Math.max(0,parseFloat((sil.current-deduct).toFixed(1))); sil._ts=Date.now();
         checks[dmKey]={silId:sil.id,dm:deduct}; stampCheck(dmKey);
         queueChange("silage",sil.id,sil);
         if(sil.id==='fbeet'){
@@ -3246,7 +3299,7 @@ function toggleCheck(id){
     if(stored){
       const sil=silages.find(s=>s.id===stored.silId);
       if(sil){
-        sil.current=Math.min(sil.opening,parseFloat((sil.current+stored.dm).toFixed(1)));
+        sil.current=parseFloat((sil.current+stored.dm).toFixed(1)); sil._ts=Date.now();  // exact reverse — never cap at opening (v13.6)
         queueChange("silage",sil.id,sil);
         if(sil.id==='fbeet'){
           const _w=paddocks.find(p=>p.id==='wood');
@@ -3290,7 +3343,7 @@ function toggleBarnCheck(){
       if(!sil)return;
       const feedDM=totDM*(feed.pctDM/100);
       const deduct=Math.min(feedDM,sil.current);
-      sil.current=Math.max(0,parseFloat((sil.current-deduct).toFixed(1)));
+      sil.current=Math.max(0,parseFloat((sil.current-deduct).toFixed(1))); sil._ts=Date.now();
       checks[`barn_dm_${idx}`]={silId:sil.id,dm:deduct}; stampCheck(`barn_dm_${idx}`);
       queueChange("silage",sil.id,sil);
     });
@@ -3300,7 +3353,7 @@ function toggleBarnCheck(){
       const stored=checks[`barn_dm_${idx}`];
       if(stored){
         const sil=silages.find(s=>s.id===stored.silId);
-        if(sil){sil.current=Math.min(sil.opening,parseFloat((sil.current+stored.dm).toFixed(1)));queueChange("silage",sil.id,sil);}
+        if(sil){sil.current=parseFloat((sil.current+stored.dm).toFixed(1)); sil._ts=Date.now(); queueChange("silage",sil.id,sil);}
         delete checks[`barn_dm_${idx}`]; stampCheck(`barn_dm_${idx}`);
       }
     });
@@ -3886,7 +3939,9 @@ function saveSilage(){
     s.current=parseFloat(document.getElementById("sil-current")?.value)||0;
     s.opening=parseFloat(document.getElementById("sil-opening")?.value)||s.opening;
     s.dmPct=parseFloat(document.getElementById("sil-dmpct")?.value)||s.dmPct;
+    if(s.current>s.opening)s.opening=s.current;   // top-up: total stock rises to match (v13.6)
   }
+  s._ts=Date.now();
   queueChange("silage",id,s);
   saveAll();closeModal("silage-modal");renderOverview();renderFeedOut();toast("✓ Inventory updated");
 }
@@ -3899,11 +3954,11 @@ function saveStock(){
   if(!name)return;
   const dmKg=kg*(dmPct/100);
   const ex=silages.find(s=>s.name.toLowerCase()===name.toLowerCase());
-  if(ex){ex.current+=dmKg;ex.opening+=dmKg;toast("✓ Added "+fmt(dmKg)+" kg DM to "+ex.name);queueChange("silage",ex.id,ex);}
+  if(ex){ex.current+=dmKg;ex.opening+=dmKg;ex._ts=Date.now();toast("✓ Added "+fmt(dmKg)+" kg DM to "+ex.name);queueChange("silage",ex.id,ex);}
   else{
     const id="st_"+Date.now();
     const color=["#16A34A","#D68910","#2563EB","#9333EA","#C0392B"][silages.length%5];
-    const newSil={id,name,color,opening:dmKg,current:dmKg,draw:0,note:note||"Added "+new Date().toLocaleDateString("en-NZ")};
+    const newSil={id,name,color,opening:dmKg,current:dmKg,draw:0,_ts:Date.now(),note:note||"Added "+new Date().toLocaleDateString("en-NZ")};
     silages.push(newSil);
     toast("✓ Created: "+name);
     if(!ALL_SUPP_TYPES.includes(name))ALL_SUPP_TYPES.push(name);
@@ -4313,8 +4368,8 @@ async function liveSyncPoll(){
   }
 }
 setInterval(liveSyncPoll, 30000); // poll every 30 seconds
-setInterval(()=>{ flushSync(); drainPendingRender(); }, 60000); // periodic flush of pending edits + any deferred render
-document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ flushSync(); } else { liveSyncPoll(); } }); // flush on background, poll on resume
+setInterval(()=>{ rollChecksIfNewDay(); flushSync(); drainPendingRender(); }, 60000); // midnight roll + periodic flush of pending edits + any deferred render
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ flushSync(); } else { rollChecksIfNewDay(); liveSyncPoll(); } }); // flush on background; roll + poll on resume
 window.addEventListener('pagehide', flushSync); // last-chance flush when the app is closed/backgrounded
 // ── Version check — service worker handles auto-update; this is a belt-and-braces fallback ──
 const CURRENT_VERSION=document.querySelector('meta[name="app-version"]')?.content||"0";
