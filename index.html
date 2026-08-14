@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="13.8.1">
+<meta name="app-version" content="13.8.2">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v13.8.1";
+  const APP_VERSION = "pfe-v13.8.2";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.8.1</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.8.2</div>
     </div>
   </div>
   <div class="tabs">
@@ -441,9 +441,6 @@ body.outdoor .supp-qty div{font-size:16px!important}
     <div class="barn-card" id="barn-section"></div>
     <div class="sec">Crop paddock supplements</div>
     <div id="fo-crop-list"></div>
-    <div class="sec">Pasture mobs</div>
-    <div id="fo-pasture-list"></div>
-    <button class="btn btn-secondary btn-full btn-sm" style="margin-top:4px" onclick="openAddPastureMob()">+ Add pasture mob</button>
     <div class="sec">End of day</div>
     <button class="btn btn-secondary btn-full btn-sm" onclick="saveDailyLog()">💾 Save today's log</button>
     <button class="btn btn-secondary btn-full btn-sm" style="margin-top:6px" onclick="generateWeeklySummary()">📄 Generate weekly GM summary</button>
@@ -3240,20 +3237,9 @@ function renderFeedOut(){
   });
   document.getElementById("fo-crop-list").innerHTML=cHTML||`<div class="empty-state">No crop or pasture mob supplements</div>`;
   addSwipeHandlers();
-  // Pasture mob management strip — the mobs' supplement items themselves are now shown
-  // above, merged into the per-feed-type list alongside crop supplements (tagged "PASTURE MOB").
-  let pHTML="";
-  const apm=allPastureMobs();
-  if(apm.length){
-    pHTML=`<div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0">`;
-    apm.forEach(m=>{
-      const onclick=m._block?`openPastureMobModal('${m._block}','${m.id}')`:`openEditPastureMob('${m.id}')`;
-      const loc=m.paddock?` · ${m.paddock}`:'';
-      pHTML+=`<button class="edit-btn" onclick="${onclick}">✏ ${m.name}${loc}</button>`;
-    });
-    pHTML+=`</div>`;
-  }else{pHTML=`<div class="empty-state" style="padding:16px">No pasture mobs — manage on the Pasture tab</div>`;}
-  document.getElementById("fo-pasture-list").innerHTML=pHTML;
+  // Pasture mobs are managed only on the Pasture tab (v13.8.2). Their supplement items still
+  // appear in the Feed Out list above, merged into the per-feed-type sections (tagged "PASTURE MOB")
+  // so the driver carts and ticks them — but the edit strip that used to live here is gone.
 }
 // Map supplement type to silage inventory id
 function getSilageForSuppType(type){
