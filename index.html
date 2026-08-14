@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="13.8.3">
+<meta name="app-version" content="13.8.4">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v13.8.3";
+  const APP_VERSION = "pfe-v13.8.4";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.8.3</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.8.4</div>
     </div>
   </div>
   <div class="tabs">
@@ -1331,6 +1331,7 @@ let silages=[
   {id:"fbeet",  name:"Fodder Beet",        color:"#EA580C",opening:0,     current:0,     draw:0,   note:"Woodings beet carted to Pov Bay · King Country · Bottom 60",altDay:false, dmPct:24.79},
   {id:"pke",    name:"PKE",               color:"#D68910",opening:29000, current:29000, draw:200, note:"34t purchased · ~5t fed · 88% DM",altDay:false, dmPct:88},
   {id:"peas",   name:"Peas",              color:"#16A34A",opening:12000, current:12000, draw:0,   note:"12t available",altDay:false, dmPct:85},
+  {id:"barley", name:"Barley",            color:"#CA8A04",opening:0,     current:0,     draw:0,   note:"Set on-hand via Update",altDay:false, dmPct:86},
   {id:"baleage",name:"Baleage",           color:"#92400E",opening:64600, current:64600, draw:0,   note:"200 bales · 850 kg wet · 38% DM",altDay:false, dmPct:38, numBales:200, wetPerBale:850, dmPerBale:323},
 ];
 let pastureMobs=[
@@ -1893,7 +1894,7 @@ function loadFromLocal(){
     const ad=localStorage.getItem("pfe5_altdayshift");if(ad!=null) altDayShift=Number(ad)%2||0;
   }catch(e){}
   // Migration: add dmPct to existing silage entries, add Baleage if missing, add silageId to barn feeds
-  const SIL_DMPCT_DEFAULTS={bulk:35,lucmz:35,lbeet:24.79,pke:88,peas:85,baleage:38};
+  const SIL_DMPCT_DEFAULTS={bulk:35,lucmz:35,lbeet:24.79,pke:88,peas:85,barley:86,baleage:38};
   silages.forEach(s=>{if(s.dmPct==null&&SIL_DMPCT_DEFAULTS[s.id]!=null)s.dmPct=SIL_DMPCT_DEFAULTS[s.id];});
   if(!silages.find(s=>s.id==="baleage")){
     silages.push({id:"baleage",name:"Baleage",color:"#92400E",opening:64600,current:64600,draw:0,
@@ -1902,6 +1903,10 @@ function loadFromLocal(){
   if(!silages.find(s=>s.id==="fbeet")){
     silages.push({id:"fbeet",name:"Fodder Beet",color:"#EA580C",opening:0,current:0,draw:0,
       note:"Woodings beet carted to Pov Bay · King Country · Bottom 60",altDay:false,dmPct:24.79});
+  }
+  if(!silages.find(s=>s.id==="barley")){
+    silages.push({id:"barley",name:"Barley",color:"#CA8A04",opening:0,current:0,draw:0,
+      note:"Set on-hand via Update",altDay:false,dmPct:86});
   }
   // Sync fbeet balance from Woodings remaining crop DM — Woodings is the source of truth
   {const _w=paddocks.find(p=>p.id==='wood'),_f=silages.find(s=>s.id==='fbeet');
@@ -3246,7 +3251,7 @@ function renderFeedOut(){
 function roundWet(kg,type){const step=(type==="Peas"||type==="Barley")?10:100;return Math.round(kg/step)*step;}
 // Map supplement type to silage inventory id
 function getSilageForSuppType(type){
-  const map={"Bulk Silage":"bulk","Silage/Urea/DCP":"bulk","Lucerne Silage":"lucmz","PKE":"pke","Peas":"peas","Beet":"fbeet","Fodder Beet":"fbeet","Lifting Beet":"lbeet","Baleage":"baleage"};
+  const map={"Bulk Silage":"bulk","Silage/Urea/DCP":"bulk","Lucerne Silage":"lucmz","PKE":"pke","Peas":"peas","Barley":"barley","Beet":"fbeet","Fodder Beet":"fbeet","Lifting Beet":"lbeet","Baleage":"baleage"};
   const sid=map[type];
   return sid?silages.find(s=>s.id===sid):null;
 }
