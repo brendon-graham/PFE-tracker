@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="13.8.2">
+<meta name="app-version" content="13.8.3">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v13.8.2";
+  const APP_VERSION = "pfe-v13.8.3";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.8.2</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.8.3</div>
     </div>
   </div>
   <div class="tabs">
@@ -3180,7 +3180,7 @@ function renderFeedOut(){
     const stTotWet=g.filter(i=>i.todayFeed).reduce((a,i)=>a+i.wetToday,0);
     const isBaleageGroup=st==="Baleage";
     const stTotBales=isBaleageGroup?g.filter(i=>i.todayFeed&&i.balesToday!=null).reduce((a,i)=>a+i.balesToday,0):0;
-    const groupTotLabel=isBaleageGroup&&stTotBales>0?`${Math.round(stTotBales)} bales today`:stTotWet>0?`${fmt(Math.round(stTotWet/100)*100,0)} kg wet today`:"not today";
+    const groupTotLabel=isBaleageGroup&&stTotBales>0?`${Math.round(stTotBales)} bales today`:stTotWet>0?`${fmt(roundWet(stTotWet,st),0)} kg wet today`:"not today";
     cHTML+=`<div class="supp-group">
       <div class="supp-group-head"><span>${st}</span><span style="font-size:11px">${groupTotLabel}</span></div>`;
     g.forEach(item=>{
@@ -3195,15 +3195,15 @@ function renderFeedOut(){
       if(isBaleage&&!skip){
         const balesTotal=item.balesToday!=null?Math.round(item.balesToday):null;
         const perFeeder=balesTotal!=null&&item.feeders>0?Math.round(balesTotal/item.feeders):null;
-        qtyHTML=`<div style="font-weight:800;font-size:14px">${balesTotal!=null?balesTotal+" bales":fmt(Math.round(item.wetToday/100)*100,0)+" kg wet"}</div>
+        qtyHTML=`<div style="font-weight:800;font-size:14px">${balesTotal!=null?balesTotal+" bales":fmt(roundWet(item.wetToday,item.type),0)+" kg wet"}</div>
           ${perFeeder!=null?`<div style="font-size:11px;color:var(--ok);font-weight:700">↳ ${perFeeder} bales × ${item.feeders} feeder${item.feeders>1?"s":""}</div>`:""}
           <div class="supp-qty-sub">${item.mult>1?item.mult+"× cover":""}</div>`;
       }else if(skip){
         const nextBales=isBaleage&&balesShowAmt!=null;
-        qtyHTML=`<div style="color:var(--muted)">${nextBales?Math.round(balesShowAmt)+" bales":fmt(Math.round(wetShowAmt/100)*100,0)+" kg wet"}</div>
+        qtyHTML=`<div style="color:var(--muted)">${nextBales?Math.round(balesShowAmt)+" bales":fmt(roundWet(wetShowAmt,item.type),0)+" kg wet"}</div>
           <div class="supp-qty-sub">next feed${item.nextMult>1?" ("+item.nextMult+"× cover)":""}</div>`;
       }else{
-        qtyHTML=`<div style="font-weight:800;font-size:14px">${fmt(Math.round(wetShowAmt/100)*100,0)} kg wet</div>
+        qtyHTML=`<div style="font-weight:800;font-size:14px">${fmt(roundWet(wetShowAmt,item.type),0)} kg wet</div>
           <div class="supp-qty-sub">${item.mult>1?item.mult+"× cover today":"today's load"}</div>`;
       }
       // Split paddock breakdown (e.g. Waikato, Bottom 60)
@@ -3211,7 +3211,7 @@ function renderFeedOut(){
       if(item.splits&&item.splits.length>1&&!skip){
         splitHTML=`<div style="margin-top:8px;border-top:1px dashed var(--fog);padding-top:6px">`;
         item.splits.forEach(sp=>{
-          const spWet=Math.round((wetShowAmt*sp.headFrac)/100)*100;
+          const spWet=roundWet(wetShowAmt*sp.headFrac,item.type);
           const spWidth=(item.widthFrac||sp.widthFrac||0.5)*100; // % of total break width isn't storable here, just label
           splitHTML+=`<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;color:var(--bark)">
             <span>↳ ${sp.label} (${Math.round(sp.headFrac*100)}% mob)</span>
@@ -3241,6 +3241,9 @@ function renderFeedOut(){
   // appear in the Feed Out list above, merged into the per-feed-type sections (tagged "PASTURE MOB")
   // so the driver carts and ticks them — but the edit strip that used to live here is gone.
 }
+// Feed-out wet-kg rounding — Peas and Barley are small daily loads, round to the nearest 10 kg
+// (nearest 100 kg would show a ~35 kg peas load as "0 kg wet"). Everything else stays at 100 kg.
+function roundWet(kg,type){const step=(type==="Peas"||type==="Barley")?10:100;return Math.round(kg/step)*step;}
 // Map supplement type to silage inventory id
 function getSilageForSuppType(type){
   const map={"Bulk Silage":"bulk","Silage/Urea/DCP":"bulk","Lucerne Silage":"lucmz","PKE":"pke","Peas":"peas","Beet":"fbeet","Fodder Beet":"fbeet","Lifting Beet":"lbeet","Baleage":"baleage"};
