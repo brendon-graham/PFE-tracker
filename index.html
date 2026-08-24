@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="14.0.2">
+<meta name="app-version" content="14.0.3">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v14.0.2";
+  const APP_VERSION = "pfe-v14.0.3";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v14.0.2</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v14.0.3</div>
     </div>
   </div>
   <div class="tabs">
@@ -1502,27 +1502,46 @@ function mergeSilagesById(localArr, incomingArr){
 // genuinely NEWER edit (not just a stale phone re-sending its old copy) can
 // bring a deleted record back. Reuses mergeTickMaps for the actual per-key
 // newest-wins decision — vals here hold whole records instead of booleans.
+// v14.0.3: rewritten from scratch, no longer delegates to mergeTickMaps.
+// Two bugs found here today:
+//  (v14.0.1) mergeTickMaps only records a timestamp when truthy (`if(t)
+//  times[k]=t`) — fine for ticks (always a real Date.now(), never 0), wrong
+//  here since every pre-v14.0.0 record has no `_ts` (defaults to 0). Fixed
+//  by no longer routing through that times-map at all.
+//  (v14.0.3) mergeTickMaps' tie-break — `k in valsB && !(k in valsA)` —
+//  favours LOCAL whenever both sides already have the key, which is every
+//  single tie once neither side has been stamped (i.e. every record until
+//  someone individually re-saves it). For TICKS that's correct: a phone's
+//  own not-yet-pushed tick deserves to survive a pull that doesn't mention
+//  it. For a full record pulled fresh from the server it's backwards — it
+//  let a phone's stale or even fresh-seed-default local copy of a paddock
+//  silently win over the server's real, current data (found while
+//  investigating a Lucerne/PKE draw number that didn't match reality: five
+//  paddocks' real "Lucerne Silage" supplements had reverted to fake seed
+//  "Bulk Silage" values in memory, because both sides sat at `_ts=0`).
+// New rule: incoming (the server) wins on a tie, local only wins on a
+// STRICTLY newer timestamp — i.e. a genuine unpushed edit, which always
+// carries a real Date.now() from the v14.0.0+ save functions, never 0.
 function mergeRecordArray(localArr, localTombs, incomingArr, incomingTombs){
-  const lVals={}, lTimes=Object.assign({}, localTombs||{});
-  (localArr||[]).forEach(r=>{ if(r&&r.id!=null){ lVals[r.id]=r; lTimes[r.id]=Number(r._ts||0); } });
-  const iVals={}, iTimes=Object.assign({}, incomingTombs||{});
-  (incomingArr||[]).forEach(r=>{ if(r&&r.id!=null){ iVals[r.id]=r; iTimes[r.id]=Number(r._ts||0); } });
-  const m=mergeTickMaps(lVals, lTimes, iVals, iTimes);
+  const byId={};
+  (localArr||[]).forEach(r=>{ if(r&&r.id!=null) byId[r.id]={ts:Number(r._ts||0), isTomb:false, rec:r}; });
+  Object.keys(localTombs||{}).forEach(id=>{
+    const ts=Number(localTombs[id]||0), cur=byId[id];
+    if(!cur||ts>=cur.ts) byId[id]={ts, isTomb:true, rec:null};
+  });
+  (incomingArr||[]).forEach(r=>{
+    if(!r||r.id==null) return;
+    const ts=Number(r._ts||0), cur=byId[r.id];
+    if(!cur||ts>=cur.ts) byId[r.id]={ts, isTomb:false, rec:r};   // incoming wins ties
+  });
+  Object.keys(incomingTombs||{}).forEach(id=>{
+    const ts=Number(incomingTombs[id]||0), cur=byId[id];
+    if(!cur||ts>=cur.ts) byId[id]={ts, isTomb:true, rec:null};   // incoming wins ties
+  });
   const arr=[], tombs={};
-  // BUG FIXED (v14.0.1): mergeTickMaps' `if(t) times[k]=t` only records a
-  // timestamp when it's truthy — correct for ticks (always stamped with a
-  // real Date.now(), never 0) but wrong here, since every pre-v14.0.0 record
-  // has NO `_ts` (defaults to 0). That left a winning record in `m.vals` with
-  // no matching key in `m.times`, and iterating `m.times` alone silently
-  // dropped it — every paddock/mob predating this feature (i.e. everything)
-  // vanished from the merged result on the very first pull. Iterate the
-  // union of both key sets instead: a live record is found via `m.vals`
-  // regardless of its winning timestamp; a tombstone (never absent from
-  // `m.times` since deletes always stamp a real Date.now()) is found via
-  // `m.times`.
-  const ids=new Set([...Object.keys(m.vals), ...Object.keys(m.times)]);
-  ids.forEach(id=>{
-    if(id in m.vals) arr.push(m.vals[id]); else tombs[id]=m.times[id];
+  Object.keys(byId).forEach(id=>{
+    const w=byId[id];
+    if(w.isTomb) tombs[id]=w.ts; else arr.push(w.rec);
   });
   return {arr, tombs};
 }
@@ -3042,6 +3061,24 @@ function renderOverview(){
   sh+=`<button class="btn btn-secondary btn-sm btn-full" style="margin-top:4px" onclick="openAddStock()">+ Add supplement / purchase</button>`;
   document.getElementById("ov-silage").innerHTML=sh;
   let sd=`<div class="card-body">`;
+  // BUG FIXED (v14.0.3): labelled "(all sources)" but only ever summed paddock
+  // + pasture-mob supplements — the barn ration was silently excluded, even
+  // though barn feeds (Lucerne silage, Maize silage, etc.) draw from these
+  // same pits and are often the BIGGER share (e.g. barn draws more from the
+  // Lucerne/Maize pit than every paddock combined). The per-pit cards above
+  // this table already include barn correctly via calcCurrentDraw — only
+  // this by-supplement-type breakdown was wrong. barnAttributed guards
+  // against double-counting when two type labels share one pit (Bulk
+  // Silage / Silage-Urea-DCP both map to "bulk") — the barn share is shown
+  // once, on whichever label comes first.
+  const barnTotalPct=barnCalc.feeds.reduce((a,f)=>a+(f.pctDM||0),0)||100;
+  const barnDailyTotal=barnCalc.head*(barnCalc.lw*barnCalc.dmPct/100);
+  const barnFinish=barnCalc.finishDate?new Date(barnCalc.finishDate):null;
+  const todayForBarn=new Date(TODAY);todayForBarn.setHours(0,0,0,0);
+  const barnActive=!barnFinish||todayForBarn<barnFinish;
+  const barnSilFrac={};
+  barnCalc.feeds.forEach(f=>{ if(!f.silageId)return; barnSilFrac[f.silageId]=(barnSilFrac[f.silageId]||0)+(f.pctDM||0)/barnTotalPct; });
+  const barnAttributed=new Set();
   ALL_SUPP_TYPES.forEach(st=>{
     const fromCrop=paddocks.filter(p=>p.active).reduce((a,p)=>{
       return a+(p.supps||[]).filter(s=>s.type===st).reduce((b,s)=>b+p.head*s.dmH,0);
@@ -3049,10 +3086,16 @@ function renderOverview(){
     const fromPast=allPastureMobs().reduce((a,m)=>{
       return a+(m.supps||[]).filter(s=>s.type===st).reduce((b,s)=>b+m.head*s.dmH,0);
     },0);
-    const tot=fromCrop+fromPast;
+    const sil=getSilageForSuppType(st);
+    let fromBarn=0;
+    if(barnActive&&sil&&barnSilFrac[sil.id]&&!barnAttributed.has(sil.id)){
+      fromBarn=barnDailyTotal*barnSilFrac[sil.id];
+      barnAttributed.add(sil.id);
+    }
+    const tot=fromCrop+fromPast+fromBarn;
     if(!tot)return;
     sd+=`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--fog);font-size:13px">
-      <span style="color:var(--muted)">${st}</span>
+      <span style="color:var(--muted)">${st}${fromBarn>0?' <span style="font-size:10px;opacity:.65">(incl. barn)</span>':''}</span>
       <span style="font-weight:800">${fmt(tot)} kg DM/day</span>
     </div>`;
   });
