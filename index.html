@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="13.9.0">
+<meta name="app-version" content="14.0.0">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v13.9.0";
+  const APP_VERSION = "pfe-v14.0.0";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v13.9.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v14.0.0</div>
     </div>
   </div>
   <div class="tabs">
@@ -1334,14 +1334,18 @@ let silages=[
   {id:"barley", name:"Barley",            color:"#CA8A04",opening:0,     current:0,     draw:0,   note:"Set on-hand via Update",altDay:false, dmPct:86},
   {id:"baleage",name:"Baleage",           color:"#92400E",opening:64600, current:64600, draw:0,   note:"200 bales · 850 kg wet · 38% DM",altDay:false, dmPct:38, numBales:200, wetPerBale:850, dmPerBale:323},
 ];
-let pastureMobs=[
-  {id:"pm1",name:"MA Comms on Flats",  head:800,supps:[{type:"Bulk Silage",dmH:2.5,freq:"2d"}],note:"Flat paddocks"},
-  {id:"pm2",name:"Lite Comm Hinds",    head:200,supps:[{type:"Bulk Silage",dmH:1.0,freq:"2d"}],note:""},
-  {id:"pm3",name:"B11 MA Stags",       head:59, supps:[{type:"Baleage",dmH:0.5,freq:"daily"}],note:"Pasture"},
-  {id:"pm4",name:"R2 B11 Stags",       head:73, supps:[{type:"Baleage",dmH:0.7,freq:"daily"}],note:"Pasture"},
-];
+// Legacy Feed Out pasture-mob list — superseded by pastureBlocks.*.mobs[]
+// since v13.5.0 (each mob now carries its own paddock + supplements there).
+// Was seeded with 4 demo mobs pre-merge; that seed data is what a phone with
+// wiped localStorage fell back to and could push into live pastureBlocks
+// via "Move legacy mobs" — starts empty now (v14.0). Real mobs live in
+// pastureBlocks; this array only exists for import compatibility.
+let pastureMobs=[];
+let pastureMobsTombs={};    // {id: deletedAtMs} — per-mob merge (v14.0)
+let paddocksTombs={};
 // Custom scenarios (user-created, stored separately from builtins)
 let customScenarios=[];
+let scenarioTombs={};
 let editingScenarioId=null;
 let checks={};
 let checksDate="";
@@ -1352,8 +1356,10 @@ let editingId=null,editingSilId=null,editingPmId=null,pendingPaddockId=null;
 // New data stores declared here so saveAll/loadFromLocal can reference them safely
 let weeklyJobs = { template: {}, ticks: {}, tickTimes: {}, weekStart: "", structTs: 0 };
 let backlogJobs = [];
+let backlogJobsTombs = {};
 let weeklyCompletedArchive = [];
 let toolboxMinutesList = [];
+let toolboxMinutesTombs = {};
 let diary = [];          // daily notes from Brendon, Henry, Mark
 let pendingAgenda = [];  // agenda items built by nightly Claude agent
 let activeToolboxMinutes = null;
@@ -1363,19 +1369,20 @@ let weeklyJobEditIdx = null, weeklyJobEditDay = null;
 let backlogJobEditId = null;
 let barnMixLog = [];
 let feedOutRouteOrder = {};
-let barnSchedule = []; // upcoming mob bookings — synced via full push
+let barnSchedule = []; // upcoming mob bookings — per-record merge (v14.0)
+let barnScheduleTombs = {};
 let pastureBlocks = {
   winterGraze: {
     area: 1088, openingCover: 1700, residual: 1600, wastage: 12,
     startDate: "2026-05-15",
     growthRates: { May: 12, June: 5, July: 5, August: 10, September: 20 },
-    coverUpdates: [], mobs: []
+    coverUpdates: [], mobs: [], mobsTombs: {}
   },
   autumnSaved: {
     area: 500, openingCover: 2200, residual: 1600, wastage: 15,
     startDate: "2026-05-15",
     growthRates: { May: 12, June: 5, July: 5, August: 10, September: 20 },
-    coverUpdates: [], mobs: []
+    coverUpdates: [], mobs: [], mobsTombs: {}
   }
 };
 let editingPastureKey = null, editingPastureMobId = null, editingPastureUpdateIdx = null;
@@ -1415,11 +1422,17 @@ let pendingRender = false;   // a background merge landed mid-entry — render d
 let syncedSnapshot = (()=>{ try{ return JSON.parse(localStorage.getItem('pfe5_syncsnap')||'{}'); }catch(e){ return {}; } })();
 // The sections the server persists. Push ONLY the ones that changed, so a phone
 // editing one tab can never clobber another phone's untouched tab.
+// Sections marked with encodeTombs() carry per-record _ts + tombstoned
+// deletes (v14.0) — live records and delete-markers flattened into one
+// array so the existing row-per-item Sheets storage needs no schema change.
 const SYNC_SECTIONS = {
-  paddocks:()=>paddocks, silages:()=>silages, pastureMobs:()=>pastureMobs,
-  scenarios:()=>customScenarios, dailyLogs:()=>dailyLogs, backlogJobs:()=>backlogJobs,
-  weeklyCompletedArchive:()=>weeklyCompletedArchive, toolboxMinutesList:()=>toolboxMinutesList,
-  barnSchedule:()=>barnSchedule, pastureBlocks:()=>pastureBlocks, barnCalc:()=>barnCalc,
+  paddocks:()=>encodeTombs(paddocks, paddocksTombs), silages:()=>silages,
+  pastureMobs:()=>encodeTombs(pastureMobs, pastureMobsTombs),
+  scenarios:()=>encodeTombs(customScenarios, scenarioTombs), dailyLogs:()=>dailyLogs,
+  backlogJobs:()=>encodeTombs(backlogJobs, backlogJobsTombs),
+  weeklyCompletedArchive:()=>weeklyCompletedArchive,
+  toolboxMinutesList:()=>encodeTombs(toolboxMinutesList, toolboxMinutesTombs),
+  barnSchedule:()=>encodeTombs(barnSchedule, barnScheduleTombs), pastureBlocks:()=>pastureBlocks, barnCalc:()=>barnCalc,
   checks:()=>({checks, date:checksDate, times:checksTimes}), weeklyJobs:()=>weeklyJobs,
   stockRec:()=>stockRec, animalHealthOrders:()=>animalHealthOrders,
 };
@@ -1475,6 +1488,65 @@ function mergeSilagesById(localArr, incomingArr){
     out.push(it>=lt?inc:s); seen.add(s.id);
   });
   (incomingArr||[]).forEach(inc=>{ if(!seen.has(inc.id)){ out.push(inc); seen.add(inc.id); } });
+  return out;
+}
+// ── Generic per-id record merge with tombstoned deletes (v14.0) ────────
+// Extends the tick-tombstone pattern above (mergeTickMaps) to full CRUD
+// record lists — paddocks, pasture mobs, scenarios, backlog jobs, toolbox
+// minutes, barn schedule. mergeSilagesById (above) has no delete tracking,
+// which is fine for a fixed set of feed types that are never removed; these
+// lists ARE created/deleted routinely, so a plain per-id union would let a
+// stale phone's old copy silently resurrect something someone else deleted.
+// Every record is stamped `_ts` on create/edit; a delete removes it from the
+// live array but records `{id: ts}` in a companion tombs map, so only a
+// genuinely NEWER edit (not just a stale phone re-sending its old copy) can
+// bring a deleted record back. Reuses mergeTickMaps for the actual per-key
+// newest-wins decision — vals here hold whole records instead of booleans.
+function mergeRecordArray(localArr, localTombs, incomingArr, incomingTombs){
+  const lVals={}, lTimes=Object.assign({}, localTombs||{});
+  (localArr||[]).forEach(r=>{ if(r&&r.id!=null){ lVals[r.id]=r; lTimes[r.id]=Number(r._ts||0); } });
+  const iVals={}, iTimes=Object.assign({}, incomingTombs||{});
+  (incomingArr||[]).forEach(r=>{ if(r&&r.id!=null){ iVals[r.id]=r; iTimes[r.id]=Number(r._ts||0); } });
+  const m=mergeTickMaps(lVals, lTimes, iVals, iTimes);
+  const arr=[], tombs={};
+  Object.keys(m.times).forEach(id=>{
+    if(id in m.vals) arr.push(m.vals[id]); else tombs[id]=m.times[id];
+  });
+  return {arr, tombs};
+}
+// Wire format for a synced record section: live records + tombstone markers
+// flattened into one array (keeps the existing row-per-item Sheets storage
+// on Code.gs — no new sheet tabs needed). Encode before sending, decode
+// after receiving.
+function encodeTombs(arr, tombs){
+  const tombRows=Object.keys(tombs||{}).map(id=>({id, _tomb:true, _ts:tombs[id]}));
+  return [...(arr||[]), ...tombRows];
+}
+function decodeTombs(rawArr){
+  const arr=[], tombs={};
+  (rawArr||[]).forEach(r=>{ if(!r)return; if(r._tomb) tombs[r.id]=Number(r._ts||0); else arr.push(r); });
+  return {arr, tombs};
+}
+// pastureBlocks nests a per-mob record list (mobs[]) inside two named blocks
+// (winterGraze/autumnSaved). The mobs list gets the same per-mob tombstoned
+// merge as any other record section; everything else in a block (area,
+// cover, growth rates, coverUpdates) stays on the existing whole-object _ts
+// guard — those fields are edited by one person at a time in practice, so
+// the lighter guard already in place is enough. Only the mobs list needs
+// per-record protection (this is the mechanism behind the "Cattle Yards 4
+// mob keeps coming back" report — a stale phone's whole pastureBlocks push
+// used to carry its old mobs list straight over the top of a deletion).
+function mergePastureBlocks(local, incoming){
+  local=local||{}; incoming=incoming||{};
+  const out={};
+  PASTURE_BLOCK_DEFS.forEach(({key})=>{
+    const lb=local[key]||{}, ib=incoming[key]||{};
+    const lTs=Number(local._ts||0), iTs=Number(incoming._ts||0);
+    const base = iTs>=lTs ? ib : lb;
+    const m=mergeRecordArray(lb.mobs, lb.mobsTombs, ib.mobs, ib.mobsTombs);
+    out[key]={...base, mobs:m.arr, mobsTombs:m.tombs};
+  });
+  out._ts=Math.max(Number(local._ts||0), Number(incoming._ts||0));
   return out;
 }
 // ── Daily tick roll-over (v13.7) ──────────────────────────────────────
@@ -1563,22 +1635,28 @@ function renderSyncBar(){
 function saveToLocal(){
   try{
     localStorage.setItem("pfe5_paddocks",    JSON.stringify(paddocks));
+    localStorage.setItem("pfe5_paddocks_tombs", JSON.stringify(paddocksTombs));
     localStorage.setItem("pfe5_silages",     JSON.stringify(silages));
     localStorage.setItem("pfe5_pasturemobs", JSON.stringify(pastureMobs));
+    localStorage.setItem("pfe5_pasturemobs_tombs", JSON.stringify(pastureMobsTombs));
     localStorage.setItem("pfe5_meashistory", JSON.stringify(measureHistory));
     localStorage.setItem("pfe5_checks",      JSON.stringify({checks,date:checksDate,times:checksTimes}));
     localStorage.setItem("pfe5_dailylogs",   JSON.stringify(dailyLogs));
     localStorage.setItem("pfe5_barncalc",    JSON.stringify(barnCalc));
     localStorage.setItem("pfe5_scenarios",   JSON.stringify(customScenarios));
+    localStorage.setItem("pfe5_scenarios_tombs", JSON.stringify(scenarioTombs));
     localStorage.setItem("pfe5_weeklyjobs",  JSON.stringify(weeklyJobs));
     localStorage.setItem("pfe5_backlog",     JSON.stringify(backlogJobs));
+    localStorage.setItem("pfe5_backlog_tombs", JSON.stringify(backlogJobsTombs));
     localStorage.setItem("pfe5_wjarchive",   JSON.stringify(weeklyCompletedArchive));
     localStorage.setItem("pfe5_toolbox",     JSON.stringify(toolboxMinutesList));
+    localStorage.setItem("pfe5_toolbox_tombs", JSON.stringify(toolboxMinutesTombs));
     localStorage.setItem("pfe5_barnmixlog",  JSON.stringify(barnMixLog));
     localStorage.setItem("pfe5_routeorder",  JSON.stringify(feedOutRouteOrder));
     localStorage.setItem("pfe5_diary",       JSON.stringify(diary));
     localStorage.setItem("pfe5_agenda",      JSON.stringify(pendingAgenda));
     localStorage.setItem("pfe5_barnschedule",JSON.stringify(barnSchedule));
+    localStorage.setItem("pfe5_barnschedule_tombs", JSON.stringify(barnScheduleTombs));
     localStorage.setItem("pfe5_barnscheduleTs",String(barnScheduleTs));
     localStorage.setItem("pfe5_pastureblocks",JSON.stringify(pastureBlocks));
     localStorage.setItem("pfe5_ahorders",    JSON.stringify(animalHealthOrders));
@@ -1773,19 +1851,38 @@ async function pushLegacy(){
 function applyPullData(d, skip){
   skip = skip || new Set();
   const keep = k => !skip.has(k);
-  if(keep('paddocks')    && d.paddocks    && d.paddocks.length)    paddocks    = d.paddocks;
+  // v14.0 — per-record _ts + tombstoned-delete merge (mergeRecordArray) for
+  // every list that gets created/edited/deleted, not just overwritten as a
+  // whole. Previously these did `d.X && d.X.length` — a truthy-length guard
+  // that could never accept a genuinely-emptied list from the server (an
+  // empty array is truthy but has length 0), so a phone with wiped
+  // localStorage could get stuck believing its stale/seed data was current
+  // forever. Fixed here by merging instead of gating on length.
+  if(keep('paddocks') && d.paddocks){
+    const inc=decodeTombs(d.paddocks);
+    const m=mergeRecordArray(paddocks, paddocksTombs, inc.arr, inc.tombs);
+    paddocks=m.arr; paddocksTombs=m.tombs;
+  }
   if(d.silages && d.silages.length){                         // per-id LWW merge, not wholesale replace (v13.6)
     silages = mergeSilagesById(silages, d.silages);
     silages.forEach(s=>{if(s.id!=='baleage'&&s.id!=='fbeet'&&s.current>s.opening)s.opening=s.current;});
   }
-  if(keep('pastureMobs') && d.pastureMobs && d.pastureMobs.length) pastureMobs = d.pastureMobs;
+  if(keep('pastureMobs') && d.pastureMobs){
+    const inc=decodeTombs(d.pastureMobs);
+    const m=mergeRecordArray(pastureMobs, pastureMobsTombs, inc.arr, inc.tombs);
+    pastureMobs=m.arr; pastureMobsTombs=m.tombs;
+  }
   if(keep('barnCalc') && d.barnCalc){
     barnCalc=d.barnCalc;
     const _smap={"lucerne silage":"lucmz","pasture silage":"bulk","lifting beet":"lbeet","maize silage":"lucmz"};
     (barnCalc.feeds||[]).forEach(f=>{f.silageId=_smap[(f.name||'').toLowerCase()]||null;});
   }
-  if(keep('scenarios') && d.scenarios   && d.scenarios.length)   customScenarios = d.scenarios;
-  if(keep('dailyLogs') && d.dailyLogs   && d.dailyLogs.length)   dailyLogs   = d.dailyLogs;
+  if(keep('scenarios') && d.scenarios){
+    const inc=decodeTombs(d.scenarios);
+    const m=mergeRecordArray(customScenarios, scenarioTombs, inc.arr, inc.tombs);
+    customScenarios=m.arr; scenarioTombs=m.tombs;
+  }
+  if(keep('dailyLogs') && d.dailyLogs) dailyLogs = d.dailyLogs;   // server merges by date (mergeDailyLogs) — length-guard dropped, empty is valid
   // checks + weeklyJobs.ticks always MERGE per key (LWW) — never skipped, so a
   // local unpushed tick and a remote tick both survive (v13.1).
   if(d.checks){
@@ -1810,16 +1907,29 @@ function applyPullData(d, skip){
     }
     weeklyJobs.ticks=m.vals; weeklyJobs.tickTimes=m.times;
   }
-  if(keep('backlogJobs') && d.backlogJobs && d.backlogJobs.length)  backlogJobs              = d.backlogJobs;
+  if(keep('backlogJobs') && d.backlogJobs){
+    const inc=decodeTombs(d.backlogJobs);
+    const m=mergeRecordArray(backlogJobs, backlogJobsTombs, inc.arr, inc.tombs);
+    backlogJobs=m.arr; backlogJobsTombs=m.tombs;
+  }
   if(keep('weeklyCompletedArchive') && d.weeklyCompletedArchive)    weeklyCompletedArchive   = d.weeklyCompletedArchive;
-  if(keep('toolboxMinutesList') && d.toolboxMinutesList && d.toolboxMinutesList.length) toolboxMinutesList = d.toolboxMinutesList;
+  if(keep('toolboxMinutesList') && d.toolboxMinutesList){
+    const inc=decodeTombs(d.toolboxMinutesList);
+    const m=mergeRecordArray(toolboxMinutesList, toolboxMinutesTombs, inc.arr, inc.tombs);
+    toolboxMinutesList=m.arr; toolboxMinutesTombs=m.tombs;
+  }
   if(d.diary            && d.diary.length)            diary            = d.diary;
   if(d.pendingAgenda    && d.pendingAgenda.length)    pendingAgenda    = d.pendingAgenda;
   if(d.measureHistory)                                measureHistory   = d.measureHistory;
-  if(keep('barnSchedule') && d.barnSchedule){barnSchedule=d.barnSchedule;if(keep('barnScheduleTs') && d.barnScheduleTs)barnScheduleTs=d.barnScheduleTs;}
-  if(keep('pastureBlocks') && d.pastureBlocks) pastureBlocks=d.pastureBlocks;
+  if(keep('barnSchedule') && d.barnSchedule){
+    const inc=decodeTombs(d.barnSchedule);
+    const m=mergeRecordArray(barnSchedule, barnScheduleTombs, inc.arr, inc.tombs);
+    barnSchedule=m.arr; barnScheduleTombs=m.tombs;
+    if(keep('barnScheduleTs') && d.barnScheduleTs)barnScheduleTs=d.barnScheduleTs;
+  }
+  if(keep('pastureBlocks') && d.pastureBlocks) pastureBlocks=mergePastureBlocks(pastureBlocks, d.pastureBlocks);
   if(keep('animalHealthOrders') && d.animalHealthOrders) animalHealthOrders=d.animalHealthOrders;
-  if(keep('stockRec') && d.stockRec && d.stockRec.baseClasses && d.stockRec.baseClasses.length) stockRec=d.stockRec;
+  if(keep('stockRec') && d.stockRec && d.stockRec.baseClasses) stockRec=d.stockRec;
   if(keep('altDayShift') && d.altDayShift!=null) altDayShift=Number(d.altDayShift)%2||0;
   // Sync fbeet balance from Woodings remaining crop DM
   {const _w=paddocks.find(p=>p.id==='wood'),_f=silages.find(s=>s.id==='fbeet');
@@ -1868,31 +1978,70 @@ async function pullFromSheet(){
 function loadFromLocal(){
   try{
     const p=localStorage.getItem("pfe5_paddocks");    if(p)  paddocks=JSON.parse(p);
+    const pt=localStorage.getItem("pfe5_paddocks_tombs"); if(pt) paddocksTombs=JSON.parse(pt);
     const s=localStorage.getItem("pfe5_silages");     if(s)  silages=JSON.parse(s);
     const pm=localStorage.getItem("pfe5_pasturemobs");if(pm) pastureMobs=JSON.parse(pm);
+    const pmt=localStorage.getItem("pfe5_pasturemobs_tombs"); if(pmt) pastureMobsTombs=JSON.parse(pmt);
     const mh=localStorage.getItem("pfe5_meashistory");if(mh) measureHistory=JSON.parse(mh);
     const sc=localStorage.getItem("pfe5_checks");
     if(sc){const d=JSON.parse(sc);checks=d.checks||{};checksDate=d.date||"";checksTimes=d.times||{};}
     const dl=localStorage.getItem("pfe5_dailylogs");  if(dl) dailyLogs=JSON.parse(dl);
     const bc=localStorage.getItem("pfe5_barncalc");   if(bc) barnCalc=JSON.parse(bc);
     const cs=localStorage.getItem("pfe5_scenarios");  if(cs) customScenarios=JSON.parse(cs);
+    const cst=localStorage.getItem("pfe5_scenarios_tombs"); if(cst) scenarioTombs=JSON.parse(cst);
     const wj=localStorage.getItem("pfe5_weeklyjobs"); if(wj) weeklyJobs=JSON.parse(wj);
     if(weeklyJobs && !weeklyJobs.tickTimes) weeklyJobs.tickTimes={};
     if(weeklyJobs && weeklyJobs.structTs==null) weeklyJobs.structTs=0;
     const bl=localStorage.getItem("pfe5_backlog");    if(bl) backlogJobs=JSON.parse(bl);
+    const blt=localStorage.getItem("pfe5_backlog_tombs"); if(blt) backlogJobsTombs=JSON.parse(blt);
     const wa=localStorage.getItem("pfe5_wjarchive");  if(wa) weeklyCompletedArchive=JSON.parse(wa);
     const tb=localStorage.getItem("pfe5_toolbox");    if(tb) toolboxMinutesList=JSON.parse(tb);
+    const tbt=localStorage.getItem("pfe5_toolbox_tombs"); if(tbt) toolboxMinutesTombs=JSON.parse(tbt);
     const bml=localStorage.getItem("pfe5_barnmixlog"); if(bml) barnMixLog=JSON.parse(bml);
     const ro=localStorage.getItem("pfe5_routeorder");  if(ro) feedOutRouteOrder=JSON.parse(ro);
     const dr=localStorage.getItem("pfe5_diary");       if(dr) diary=JSON.parse(dr);
     const ag=localStorage.getItem("pfe5_agenda");      if(ag) pendingAgenda=JSON.parse(ag);
     const bs=localStorage.getItem("pfe5_barnschedule");if(bs) barnSchedule=JSON.parse(bs);
+    const bst=localStorage.getItem("pfe5_barnschedule_tombs"); if(bst) barnScheduleTombs=JSON.parse(bst);
     const bsts=localStorage.getItem("pfe5_barnscheduleTs");if(bsts) barnScheduleTs=Number(bsts);
     const pb=localStorage.getItem("pfe5_pastureblocks");if(pb) pastureBlocks=JSON.parse(pb);
     const ah=localStorage.getItem("pfe5_ahorders");if(ah) animalHealthOrders=JSON.parse(ah);
     const sr=localStorage.getItem("pfe5_stockrec");if(sr) stockRec=JSON.parse(sr);
     const ad=localStorage.getItem("pfe5_altdayshift");if(ad!=null) altDayShift=Number(ad)%2||0;
   }catch(e){}
+  // Migration: a pastureBlocks object saved before v14.0 has no mobsTombs on
+  // each block — default it so the merge helpers never see undefined.
+  (PASTURE_BLOCK_DEFS||[]).forEach(({key})=>{
+    const b=pastureBlocks[key]; if(b && !b.mobsTombs) b.mobsTombs={};
+  });
+  // One-time cleanup (v14.0): a phone that loaded before this fix could have
+  // the old hardcoded demo mobs (pm1-pm4, e.g. "MA Comms on Flats") cached
+  // in localStorage from before the seed array was emptied out, or already
+  // pushed into the live pastureBlocks mob list via "Move legacy mobs". A
+  // per-id timestamp merge alone can't tell "legitimate local record" from
+  // "stale baked-in demo data" — both look like an unstamped local record —
+  // so strip these specific known-ghost ids by name whenever found without a
+  // real `_ts` (meaning they were never touched by an actual save), and
+  // tombstone them so the cleanup itself propagates to the shared Sheet.
+  (function cleanupGhostSeedMobs(){
+    let removed=false;
+    const GHOST_IDS=new Set(["pm1","pm2","pm3","pm4"]);
+    pastureMobs=pastureMobs.filter(m=>{
+      if(m && GHOST_IDS.has(m.id) && !m._ts){ pastureMobsTombs[m.id]=Date.now(); removed=true; return false; }
+      return true;
+    });
+    (PASTURE_BLOCK_DEFS||[]).forEach(({key})=>{
+      const b=pastureBlocks[key]; if(!b||!b.mobs)return;
+      b.mobs=b.mobs.filter(m=>{
+        if(m && GHOST_IDS.has(m.id) && !m._ts){ b.mobsTombs[m.id]=Date.now(); removed=true; return false; }
+        return true;
+      });
+    });
+    // Persist + queue the tombstones for push immediately, rather than waiting
+    // for the user's next unrelated edit — this cleanup needs to reach the
+    // shared Sheet even if nobody touches pasture mobs again today.
+    if(removed) saveToLocal();
+  })();
   // Migration: add dmPct to existing silage entries, add Baleage if missing, add silageId to barn feeds
   const SIL_DMPCT_DEFAULTS={bulk:35,lucmz:35,lbeet:24.79,pke:88,peas:85,barley:86,baleage:38};
   silages.forEach(s=>{if(s.dmPct==null&&SIL_DMPCT_DEFAULTS[s.id]!=null)s.dmPct=SIL_DMPCT_DEFAULTS[s.id];});
@@ -2241,9 +2390,11 @@ function saveBarnScheduleEntry(){
     finishDate: document.getElementById("bsm-finish").value,
     dmPerHead: parseFloat(document.getElementById("bsm-dm").value)||0,
     notes: document.getElementById("bsm-notes").value.trim(),
+    _ts: Date.now(),
   };
   const idx = barnSchedule.findIndex(e=>e.id===id);
   if(idx>=0) barnSchedule[idx]=entry; else barnSchedule.push(entry);
+  delete barnScheduleTombs[id];
   barnScheduleTs=Date.now();
   saveAll();
   closeModal("barn-schedule-modal");
@@ -2253,6 +2404,7 @@ function saveBarnScheduleEntry(){
 function deleteBarnScheduleEntry(){
   if(!_editingBarnSchedId) return;
   if(!confirm("Remove this mob booking?")) return;
+  barnScheduleTombs[_editingBarnSchedId]=Date.now();
   barnSchedule = barnSchedule.filter(e=>e.id!==_editingBarnSchedId);
   barnScheduleTs=Date.now();
   saveAll();
@@ -2459,19 +2611,22 @@ function saveScenario(){
     name:document.getElementById("sc-name").value||"Custom scenario",
     desc:document.getElementById("sc-desc").value,
     days,
-    builtin:false
+    builtin:false,
+    _ts:Date.now()
   };
   const idx=customScenarios.findIndex(s=>s.id===id);
   if(idx>=0)customScenarios[idx]=sc;else customScenarios.push(sc);
+  delete scenarioTombs[id];
   queueChange("scenarios","all",customScenarios);
   saveAll();closeModal("scenario-modal");renderBreaks();toast("✓ Scenario saved");
 }
 function deleteScenario(){
   if(!editingScenarioId)return;
   if(!confirm("Delete this scenario?"))return;
+  scenarioTombs[editingScenarioId]=Date.now();
   customScenarios=customScenarios.filter(s=>s.id!==editingScenarioId);
   // Reset any paddocks using this scenario to daily
-  paddocks.forEach(p=>{if(p.freq===editingScenarioId){p.freq="daily";queueChange("paddock",p.id,p);}});
+  paddocks.forEach(p=>{if(p.freq===editingScenarioId){p.freq="daily";p._ts=Date.now();queueChange("paddock",p.id,p);}});
   queueChange("scenarios","all",customScenarios);
   saveAll();closeModal("scenario-modal");renderBreaks();
 }
@@ -3853,6 +4008,7 @@ function savePaddock(){
     stockClass:document.getElementById("f-class").value,
     note:document.getElementById("f-note").value,
     active:document.getElementById("f-active").value==="1",
+    _ts:Date.now(),
   };
   const idx=paddocks.findIndex(p=>p.id===id);
   // Save split mob data
@@ -3870,11 +4026,13 @@ function savePaddock(){
   }
   data.futureMobs=cropFutureMobRows.filter(m=>m.head>0&&m.startDate);
   if(idx>=0)paddocks[idx]=data;else paddocks.push(data);
+  delete paddocksTombs[data.id];
   queueChange("paddock",data.id,data);
   saveAll();closeModal("edit-modal");renderPaddocks();renderFeedOut();renderBreaks();toast("✓ Paddock saved");
 }
 function deletePaddock(){
   if(!confirm("Remove this paddock?"))return;
+  paddocksTombs[editingId]=Date.now();
   paddocks=paddocks.filter(p=>p.id!==editingId);
   queueChange("paddock",editingId,null);
   saveAll();closeModal("edit-modal");renderPaddocks();
@@ -3992,14 +4150,16 @@ function openEditPastureMob(id){
 function savePastureMob(){
   const id=document.getElementById("pm-id").value;
   const supps=getSuppRowsFromDOM("pm-supp-rows");
-  const data={id,name:document.getElementById("pm-name").value||"Mob",head:parseFloat(document.getElementById("pm-head").value)||0,supps:supps,note:document.getElementById("pm-note").value};
+  const data={id,name:document.getElementById("pm-name").value||"Mob",head:parseFloat(document.getElementById("pm-head").value)||0,supps:supps,note:document.getElementById("pm-note").value,_ts:Date.now()};
   const idx=pastureMobs.findIndex(m=>m.id===id);
   if(idx>=0)pastureMobs[idx]=data;else pastureMobs.push(data);
+  delete pastureMobsTombs[id];
   queueChange("pasturemob",data.id,data);
   saveAll();closeModal("pasture-modal");renderFeedOut();toast("✓ Mob saved");
 }
 function deletePastureMob(){
   if(!confirm("Remove?"))return;
+  pastureMobsTombs[editingPmId]=Date.now();
   pastureMobs=pastureMobs.filter(m=>m.id!==editingPmId);
   queueChange("pasturemob",editingPmId,null);
   saveAll();closeModal("pasture-modal");renderFeedOut();
@@ -4834,6 +4994,7 @@ function tickBacklogJob(id){
   job.done = true;
   job.doneAt = new Date().toISOString();
   job.doneBy = syncUserName || "Staff";
+  job._ts = Date.now();
   queueChange("backlog",id,job);
   saveAll();
   renderBacklogJobs();
@@ -4841,6 +5002,7 @@ function tickBacklogJob(id){
 }
 function removeBacklogJob(id){
   if(!confirm("Remove this job from the list?")) return;
+  backlogJobsTombs[id]=Date.now();
   backlogJobs = backlogJobs.filter(j => j.id!==id);
   queueChange("backlog",id,null);
   saveAll();
@@ -4895,8 +5057,10 @@ function saveBacklogJobModal(){
     const job = backlogJobs.find(j=>j.id===backlogJobEditId);
     if(job){
       job.cat = cat; job.text = text; job.priority = priority; job.jobcat = jobcat; job.assignedTo = assignedTo; job.recurrence = recurrence||null;
+      job._ts = Date.now();
       queueChange("backlog",backlogJobEditId,job);
     }
+    delete backlogJobsTombs[backlogJobEditId];
     backlogJobEditId = null;
     saveAll();
     closeModal('add-backlog-job-modal');
@@ -4905,8 +5069,9 @@ function saveBacklogJobModal(){
     return;
   }
   const newId = "bx"+Date.now();
-  const newJob = {id:newId, cat, text, priority, jobcat, assignedTo, recurrence:recurrence||null, lastGenerated:null, done:false, doneAt:null, doneBy:null};
+  const newJob = {id:newId, cat, text, priority, jobcat, assignedTo, recurrence:recurrence||null, lastGenerated:null, done:false, doneAt:null, doneBy:null, _ts:Date.now()};
   backlogJobs.push(newJob);
+  delete backlogJobsTombs[newId];
   queueChange("backlog",newId,newJob);
   saveAll();
   closeModal('add-backlog-job-modal');
@@ -4920,7 +5085,9 @@ function purgeOldCompletedJobs(){
   const cutoff = new Date(lastSaved);
   backlogJobs = backlogJobs.filter(j => {
     if(!j.done) return true;
-    return new Date(j.doneAt) > cutoff;
+    const keep = new Date(j.doneAt) > cutoff;
+    if(!keep) backlogJobsTombs[j.id]=Date.now();
+    return keep;
   });
 }
 // ══════════════════════════════════════════════════════════
@@ -5055,9 +5222,11 @@ function saveToolboxMinutes(){
   m.sections.s7_rm        = get('tb-s7')        || m.sections.s7_rm;
   m.sections.s8_actions   = get('tb-s8')        || m.sections.s8_actions;
   m.savedAt = new Date().toISOString();
+  m._ts = Date.now();
   // Add/update in list
   const idx = toolboxMinutesList.findIndex(x => x.id === m.id);
   if(idx >= 0) toolboxMinutesList[idx] = m; else toolboxMinutesList.push(m);
+  delete toolboxMinutesTombs[m.id];
   // Keep last 12 weeks
   if(toolboxMinutesList.length > 12) toolboxMinutesList = toolboxMinutesList.slice(-12);
   // Purge old completed backlog jobs now that they're captured in minutes
@@ -5087,6 +5256,7 @@ function deleteToolboxMinutes(id){
   const m = toolboxMinutesList.find(x => x.id === id);
   if(!m) return;
   if(!confirm(`Delete toolbox minutes for ${m.dateLabel}?`)) return;
+  toolboxMinutesTombs[id]=Date.now();
   toolboxMinutesList = toolboxMinutesList.filter(x => x.id !== id);
   queueChange("toolbox",id,null);
   saveAll();
@@ -6226,11 +6396,15 @@ function savePastureBlockMob(){
   if(!startDate)startDate=localDayStr(TODAY);
   const b=pastureBlocks[editingPastureKey];
   if(!b.mobs)b.mobs=[];
+  if(!b.mobsTombs)b.mobsTombs={};
   if(editingPastureMobId){
     const idx=b.mobs.findIndex(m=>m.id===editingPastureMobId);
-    if(idx>=0)b.mobs[idx]={...b.mobs[idx],name,head,dmPerHead,startDate,paddock,supps};
+    if(idx>=0)b.mobs[idx]={...b.mobs[idx],name,head,dmPerHead,startDate,paddock,supps,_ts:Date.now()};
+    delete b.mobsTombs[editingPastureMobId];
   }else{
-    b.mobs.push({id:"pm_"+Date.now(),name,head,dmPerHead,startDate,paddock,supps});
+    const newId="pm_"+Date.now();
+    b.mobs.push({id:newId,name,head,dmPerHead,startDate,paddock,supps,_ts:Date.now()});
+    delete b.mobsTombs[newId];
   }
   pastureBlocks._ts=Date.now();
   saveAll();
@@ -6241,6 +6415,8 @@ function savePastureBlockMob(){
 function deletePastureBlockMob(){
   if(!confirm("Remove this mob?"))return;
   const b=pastureBlocks[editingPastureKey];
+  if(!b.mobsTombs)b.mobsTombs={};
+  b.mobsTombs[editingPastureMobId]=Date.now();
   b.mobs=(b.mobs||[]).filter(m=>m.id!==editingPastureMobId);
   pastureBlocks._ts=Date.now();
   saveAll();
@@ -6251,13 +6427,18 @@ function deletePastureBlockMob(){
 // One-tap move of legacy Feed Out pasture mobs into the Pasture tab (Winter Graze). Supplements carry
 // across; grazing kg DM starts at 0 (no phantom cover draw) for Brendon to set. Clears pastureMobs so
 // nothing is double-counted (allPastureMobs reads block mobs + legacy — a mob lives in exactly one).
+// Tombstones each moved-out legacy id (v14.0) — without this, a phone still holding a stale copy of
+// the legacy list could merge it straight back in as if it were never imported.
 function importFeedOutMobs(){
   if(!pastureMobs.length)return;
   const b=pastureBlocks.winterGraze;
   if(!b.mobs)b.mobs=[];
+  if(!b.mobsTombs)b.mobsTombs={};
   const today=localDayStr(TODAY);
   pastureMobs.forEach(m=>{
-    b.mobs.push({id:m.id,name:m.name,head:m.head||0,dmPerHead:0,startDate:today,paddock:"",supps:(m.supps||[]).map(s=>({...s})),note:m.note||""});
+    b.mobs.push({id:m.id,name:m.name,head:m.head||0,dmPerHead:0,startDate:today,paddock:"",supps:(m.supps||[]).map(s=>({...s})),note:m.note||"",_ts:Date.now()});
+    delete b.mobsTombs[m.id];
+    pastureMobsTombs[m.id]=Date.now();
   });
   pastureMobs=[];
   pastureBlocks._ts=Date.now();

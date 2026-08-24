@@ -1,5 +1,10 @@
 // ═══════════════════════════════════════════════════════════════════
-// PFE FARM TRACKER — Google Apps Script Backend v4.0  (app v13.2.0)
+// PFE FARM TRACKER — Google Apps Script Backend v5.0  (app v14.0.0)
+// v14.0.0: real per-id merge (mergeArraySectionRows/mergeMobsWithTombs) for
+//          paddocks/pastureMobs/scenarios/backlogJobs/toolboxMinutesList/
+//          barnSchedule + pastureBlocks mobs, instead of blind clear+rewrite
+//          on every push. Fixes mobs/paddocks/jobs resurrecting after a
+//          stale phone pushed — see applySection.
 // v13.2.0: weeklyJobs structure (template + weekStart) guarded by structTs so a
 //          stale phone can no longer revert a freshly-rolled week — writeWeeklyMerged.
 // ═══════════════════════════════════════════════════════════════════
@@ -73,6 +78,19 @@ const SECTION_SHEETS = {
 const SECTION_ARRAY = new Set([
   "paddocks", "silages", "pastureMobs", "scenarios", "dailyLogs",
   "backlogJobs", "weeklyCompletedArchive", "toolboxMinutesList", "barnSchedule",
+]);
+// Array sections that get a real per-id merge on push instead of a blind
+// clear+rewrite (v14.0). The client sends each record's `_ts` and encodes
+// deletes as `{id,_tomb:true,_ts}` markers in the same array (see
+// encodeTombs/decodeTombs in index.html); the server merges those against
+// what's already stored so ANY push — even from a phone that hasn't synced
+// in a while — can only ever win on a genuinely newer edit, never on being
+// "whoever happened to push last". Closes the gap where handleSectionPush
+// applied every pushed section unconditionally regardless of client
+// staleness (silages/dailyLogs/weeklyCompletedArchive keep their existing,
+// separate merge behaviour and are not in this set).
+const MERGE_ARRAY_SECTIONS = new Set([
+  "paddocks", "pastureMobs", "scenarios", "backlogJobs", "toolboxMinutesList", "barnSchedule",
 ]);
 
 // SyncLog retention — drop entries older than this
@@ -288,6 +306,74 @@ function handleSectionPush(ss, body) {
   }
 }
 
+// Per-id merge for a MERGE_ARRAY_SECTIONS push. Both live records and
+// `{id,_tomb:true,_ts}` delete-markers are mixed in one flat array (the
+// row-per-item Sheets storage doesn't change shape). Newest `_ts` per id
+// wins; a tie prefers a live record over a tombstone so a same-millisecond
+// recreate always resolves. Mirrors mergeRecordArray in index.html.
+function mergeArraySectionRows(existingArr, incomingArr) {
+  const byId = {};
+  (existingArr || []).forEach(function(r) { if (r && r.id != null) byId[r.id] = r; });
+  (incomingArr || []).forEach(function(inc) {
+    if (!inc || inc.id == null) return;
+    const cur = byId[inc.id];
+    const curTs = cur ? Number(cur._ts || 0) : -1;
+    const incTs = Number(inc._ts || 0);
+    const curIsTomb = !!(cur && cur._tomb);
+    if (!cur || incTs > curTs || (incTs === curTs && !inc._tomb && curIsTomb)) {
+      byId[inc.id] = inc;
+    }
+  });
+  return Object.keys(byId).map(function(k) { return byId[k]; });
+}
+
+// Same merge, but for a {mobs, mobsTombs} pair (pastureBlocks nests mobs
+// inside two named blocks rather than a flat Sheets-row array, so tombs are
+// tracked as a separate map instead of inline `_tomb` markers).
+function mergeMobsWithTombs(localMobs, localTombs, incomingMobs, incomingTombs) {
+  const byId = {};
+  function consider(id, ts, isTomb, rec) {
+    const cur = byId[id];
+    if (!cur || ts > cur.ts || (ts === cur.ts && !isTomb && cur.isTomb)) {
+      byId[id] = { ts: ts, isTomb: isTomb, rec: rec };
+    }
+  }
+  (localMobs || []).forEach(function(m) { if (m && m.id != null) consider(m.id, Number(m._ts || 0), false, m); });
+  Object.keys(localTombs || {}).forEach(function(id) { consider(id, Number(localTombs[id] || 0), true, null); });
+  (incomingMobs || []).forEach(function(m) { if (m && m.id != null) consider(m.id, Number(m._ts || 0), false, m); });
+  Object.keys(incomingTombs || {}).forEach(function(id) { consider(id, Number(incomingTombs[id] || 0), true, null); });
+  const mobs = [], tombs = {};
+  Object.keys(byId).forEach(function(id) {
+    const w = byId[id];
+    if (w.isTomb) tombs[id] = w.ts; else mobs.push(w.rec);
+  });
+  return { mobs: mobs, tombs: tombs };
+}
+
+// pastureBlocks nests a per-mob list inside two named blocks (winterGraze /
+// autumnSaved). Merge each block's mobs per-mob by _ts; everything else in a
+// block (area, cover, growth rates, coverUpdates) stays on the pre-existing
+// whole-object _ts guard, since those fields are edited by one person at a
+// time in practice. This closes the actual reported bug ("Cattle Yards 4
+// mob keeps coming back") — the object-level _ts guard never protected the
+// mobs list on its own, because every save re-stamps it to "now" regardless
+// of what changed, so a stale phone's full push always looked newest.
+function writePastureBlocksMerged(ss, sheetName, incoming) {
+  const current = readObjectSection(ss, sheetName) || {};
+  const curTs = Number(current._ts || 0);
+  const incTs = Number((incoming || {})._ts || 0);
+  const base = (incTs >= curTs) ? (incoming || {}) : current;
+  const out = {};
+  Object.keys(base).forEach(function(k) { out[k] = base[k]; });
+  ["winterGraze", "autumnSaved"].forEach(function(key) {
+    const cb = current[key] || {}, ib = (incoming || {})[key] || {};
+    const m = mergeMobsWithTombs(cb.mobs, cb.mobsTombs, ib.mobs, ib.mobsTombs);
+    out[key] = Object.assign({}, base[key] || {}, { mobs: m.mobs, mobsTombs: m.tombs });
+  });
+  out._ts = Math.max(curTs, incTs);
+  writeObjectSection(ss, sheetName, out);
+}
+
 // Write one section by its client key. Array vs object vs merge-append is
 // decided by config so the sectioned path matches the legacy full-push exactly.
 function applySection(ss, key, value) {
@@ -296,11 +382,10 @@ function applySection(ss, key, value) {
   if (key === "dailyLogs")     { mergeDailyLogs(ss, value); return; }
   if (key === "checks")        { writeChecksMerged(ss, sheetName, value); return; }
   if (key === "weeklyJobs")    { writeWeeklyMerged(ss, sheetName, value); return; }
-  if (key === "pastureBlocks") {
-    // Stale-guard on _ts so an out-of-date phone can't roll it back.
-    const curTs = Number((readObjectSection(ss, sheetName) || {})._ts || 0);
-    const inTs  = Number((value || {})._ts || 0);
-    if (!(inTs > 0 && curTs > 0 && inTs <= curTs)) writeObjectSection(ss, sheetName, value);
+  if (key === "pastureBlocks") { writePastureBlocksMerged(ss, sheetName, value); return; }
+  if (MERGE_ARRAY_SECTIONS.has(key)) {
+    const existing = readArraySection(ss, sheetName);
+    writeArraySection(ss, sheetName, mergeArraySectionRows(existing, value));
     return;
   }
   if (SECTION_ARRAY.has(key)) writeArraySection(ss, sheetName, value);
