@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="14.0.0">
+<meta name="app-version" content="14.0.1">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v14.0.0";
+  const APP_VERSION = "pfe-v14.0.1";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v14.0.0</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v14.0.1</div>
     </div>
   </div>
   <div class="tabs">
@@ -1509,7 +1509,19 @@ function mergeRecordArray(localArr, localTombs, incomingArr, incomingTombs){
   (incomingArr||[]).forEach(r=>{ if(r&&r.id!=null){ iVals[r.id]=r; iTimes[r.id]=Number(r._ts||0); } });
   const m=mergeTickMaps(lVals, lTimes, iVals, iTimes);
   const arr=[], tombs={};
-  Object.keys(m.times).forEach(id=>{
+  // BUG FIXED (v14.0.1): mergeTickMaps' `if(t) times[k]=t` only records a
+  // timestamp when it's truthy — correct for ticks (always stamped with a
+  // real Date.now(), never 0) but wrong here, since every pre-v14.0.0 record
+  // has NO `_ts` (defaults to 0). That left a winning record in `m.vals` with
+  // no matching key in `m.times`, and iterating `m.times` alone silently
+  // dropped it — every paddock/mob predating this feature (i.e. everything)
+  // vanished from the merged result on the very first pull. Iterate the
+  // union of both key sets instead: a live record is found via `m.vals`
+  // regardless of its winning timestamp; a tombstone (never absent from
+  // `m.times` since deletes always stamp a real Date.now()) is found via
+  // `m.times`.
+  const ids=new Set([...Object.keys(m.vals), ...Object.keys(m.times)]);
+  ids.forEach(id=>{
     if(id in m.vals) arr.push(m.vals[id]); else tombs[id]=m.times[id];
   });
   return {arr, tombs};
