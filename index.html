@@ -9,12 +9,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2C1A0E">
 <title>PFE Farm Tracker</title>
-<meta name="app-version" content="14.0.1">
+<meta name="app-version" content="14.0.2">
 <script>
 // ── Inline Service Worker for automatic cache-busting ──
 // Bump APP_VERSION on every release — phones auto-update on next open.
 (function(){
-  const APP_VERSION = "pfe-v14.0.1";
+  const APP_VERSION = "pfe-v14.0.2";
   if (!("serviceWorker" in navigator)) return;
   const swCode = `
 const CACHE = "${APP_VERSION}";
@@ -380,7 +380,7 @@ body.outdoor .supp-qty div{font-size:16px!important}
         <button id="outdoor-btn" onclick="toggleOutdoor()" title="Outdoor mode">☀</button>
         <div id="flag-pill" class="flag-pill"></div>
       </div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v14.0.1</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:.3px">v14.0.2</div>
     </div>
   </div>
   <div class="tabs">
@@ -2038,10 +2038,26 @@ function loadFromLocal(){
   (function cleanupGhostSeedMobs(){
     let removed=false;
     const GHOST_IDS=new Set(["pm1","pm2","pm3","pm4"]);
+    // The FLAT legacy pastureMobs array has been fully retired since v13.5.0
+    // — every real mob now lives in pastureBlocks[key].mobs, and nothing
+    // reachable in the current UI ever adds to this array again (the old
+    // #pasture-modal / savePastureMob() it belonged to has no working entry
+    // point left). So ANY entry found here without a real `_ts` is stale
+    // residue from an old phone's local cache — not just the 4 known seed
+    // ids — and gets retired the same way. (v14.0.2: this widened scope
+    // after "Ma stags 1-6" reappeared as no-paddock duplicates of mobs that
+    // already exist correctly in pastureBlocks — a stale phone's old,
+    // pre-migration copy of pastureMobs merged back in against a genuinely
+    // empty server list, which a per-id merge can't distinguish from a
+    // legitimate unpushed local record.)
     pastureMobs=pastureMobs.filter(m=>{
-      if(m && GHOST_IDS.has(m.id) && !m._ts){ pastureMobsTombs[m.id]=Date.now(); removed=true; return false; }
+      if(m && !m._ts){ pastureMobsTombs[m.id]=Date.now(); removed=true; return false; }
       return true;
     });
+    // pastureBlocks mobs are the LIVE, actively-used data — almost none of
+    // them have `_ts` yet either (nobody has re-saved them since today's
+    // update), so this stays narrowly scoped to the 4 known seed ids only.
+    // Broadening this the same way as above would wipe every real mob.
     (PASTURE_BLOCK_DEFS||[]).forEach(({key})=>{
       const b=pastureBlocks[key]; if(!b||!b.mobs)return;
       b.mobs=b.mobs.filter(m=>{
